@@ -1,0 +1,30 @@
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; width: 310px; background: #f5f7fa; color: #27313d; font-family: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; }
+button { font: inherit; }
+.popup-shell { padding: 14px; }
+header { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 13px; }
+.brand { display: flex; align-items: center; gap: 8px; }
+.brand-logo { width: 28px; height: 28px; position: relative; display: block; }
+.brand-logo i, .brand-logo b, .brand-logo em { position: absolute; left: 5px; width: 18px; height: 8px; border: 3px solid #247cf2; border-top: 0; transform: rotate(45deg) skew(-4deg,-4deg); }
+.brand-logo i { top: 2px; }
+.brand-logo b { top: 8px; opacity: .72; }
+.brand-logo em { top: 14px; opacity: .42; }
+.brand-text { display: flex; align-items: baseline; gap: 6px; }
+.brand-text strong { font-size: 15px; letter-spacing: -.025em; }
+.brand-text small { color: #758294; font-size: 10px; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: #aab2bd; box-shadow: 0 0 0 4px #e9edf1; }
+.status-dot.on { background: #27b475; box-shadow: 0 0 0 4px #e6f7ef; }
+.popup-status { background: linear-gradient(125deg,#297ff1,#1769dc); color: #fff; border-radius: 10px; padding: 16px; display: flex; align-items: center; justify-content: space-between; }
+.popup-status > div { display: grid; grid-template-columns: auto auto; align-items: baseline; column-gap: 7px; }
+.popup-status span { grid-column: 1 / -1; font-size: 11px; color: rgba(255,255,255,.82); margin-bottom: 9px; }
+.popup-status strong { font-size: 24px; line-height: 1; }
+.popup-status small { color: rgba(255,255,255,.75); font-size: 10px; }
+.popup-switch { width: 34px; height: 20px; border: 0; border-radius: 12px; background: rgba(255,255,255,.28); padding: 4px; cursor: pointer; }
+.popup-switch i { display: block; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.15); transition: transform .15s ease; }
+.popup-switch.on { background: rgba(255,255,255,.48); }
+.popup-switch.on i { transform: translateX(14px); }
+.popup-shell > p { margin: 12px 2px; color: #6b7686; font-size: 10px; line-height: 1.6; }
+.open-button { width: 100%; height: 38px; border: 1px solid #dce8f8; border-radius: 7px; background: #fff; color: #247cf2; font-size: 11px; font-weight: 650; cursor: pointer; }
+.open-button:hover { background: #edf5ff; }
+.open-button span { margin-left: 5px; }

@@ -1,0 +1,43 @@
+{
+  "app": "Seenest",
+  "version": 1,
+  "exportedAt": "2026-08-23T10:00:00.000Z",
+  "records": [
+    {
+      "id": "x:status:10001",
+      "source": "x",
+      "contentType": "post",
+      "url": "https://x.com/linbuilds/status/10001",
+      "canonicalUrl": "https://x.com/linbuilds/status/10001",
+      "postId": "10001",
+      "title": "Agent 真正的价值，是压缩从想法到验证的距离",
+      "contentText": "一个好用的 coding agent 应该知道什么时候继续推进，什么时候停下来向人确认。",
+      "authorName": "Lin Chen",
+      "authorHandle": "@linbuilds",
+      "authorAvatarUrl": "",
+      "publishedAt": "2026-08-23T01:42:00.000Z",
+      "firstVisitedAt": "2026-08-23T08:28:00.000Z",
+      "lastVisitedAt": "2026-08-23T08:28:00.000Z",
+      "visitCount": 1,
+      "parserVersion": 1
+    },
+    {
+      "id": "x:status:10002",
+      "source": "x",
+      "contentType": "article",
+      "url": "https://x.com/mayamakes/status/10002",
+      "canonicalUrl": "https://x.com/mayamakes/status/10002",
+      "postId": "10002",
+      "title": "我们如何把一个模糊需求，拆成两周内可验证的 AI 产品",
+      "contentText": "从用户访谈、任务建模到第一个可用原型，这篇文章复盘了团队如何删掉七成看起来很聪明的功能。",
+      "authorName": "Maya",
+      "authorHandle": "@mayamakes",
+      "authorAvatarUrl": "",
+      "publishedAt": "2026-08-22T14:18:00.000Z",
+      "firstVisitedAt": "2026-08-23T06:06:00.000Z",
+      "lastVisitedAt": "2026-08-23T06:06:00.000Z",
+      "visitCount": 1,
+      "parserVersion": 1
+    }
+  ]
+}
