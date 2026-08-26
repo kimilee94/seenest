@@ -1,8 +1,18 @@
 export type ContentType = 'post' | 'article';
+export type HistorySource = 'x' | (string & {});
 
-export interface HistoryRecord {
+/** X 详情页公开展示的互动数据；null 表示页面尚未渲染或当前不可见。 */
+export interface EngagementMetrics {
+  replyCount?: number | null;
+  repostCount?: number | null;
+  viewCount?: number | null;
+  bookmarkCount?: number | null;
+  likeCount?: number | null;
+}
+
+export interface HistoryRecord extends EngagementMetrics {
   id: string;
-  source: 'x';
+  source: HistorySource;
   contentType: ContentType;
   url: string;
   canonicalUrl: string;

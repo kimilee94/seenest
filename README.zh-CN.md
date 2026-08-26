@@ -1,0 +1,145 @@
+<p align="center">
+  <img src="./public/icons/seenest-logo.png" width="96" height="96" alt="Seenest 标志" />
+</p>
+
+<h1 align="center">Seenest</h1>
+
+<p align="center"><strong>你的专属浏览时光机。</strong></p>
+
+<p align="center">自动留住你认真打开过的内容，不让有价值的瞬间消失在信息流里。</p>
+
+<p align="center">
+  <a href="./README.md">English</a> · <strong>简体中文</strong>
+</p>
+
+Seenest 是一款本地优先的浏览器扩展，用于建立属于自己的、可以搜索的浏览记录。打开已支持网站的内容详情页后，它会自动保存记录并进行去重，让你以后可以随时回到原始页面。
+
+Seenest 从产品设计上面向多个内容平台。**当前早期版本仅支持 X / Twitter 的内容详情页**，后续会通过独立适配器和用户主动授权逐步增加其他网站。
+
+无需 Seenest 账号，不依赖 Seenest 服务器，当前也没有统计分析或 AI 处理。除非你主动导出或备份，浏览记录只保存在自己的设备中。
+
+## 功能
+
+- 自动记录已支持的帖子和长文章详情页
+- 保存原始链接、标题、正文、作者、头像、发布时间和最后访问时间
+- 在 X 页面公开展示时，记录评论、转发、浏览、收藏和喜欢数量
+- 重复访问同一内容时更新原记录，不创建重复数据
+- 支持按标题、正文、作者和链接搜索
+- 支持来源及日期筛选、按天分组和分页浏览
+- 点击记录即可跳转到原始页面
+- 支持导出 JSON 和 Excel（`.xlsx`）
+- 可主动选择一个本地 JSON 文件，用于自动生成历史快照
+
+## 支持的网站
+
+| 平台 | 状态 | 记录范围 |
+| --- | --- | --- |
+| X / Twitter | 已支持 | 帖子与长文章详情页 |
+| 其他平台 | 规划中 | 通过独立适配器和明确的网站访问授权加入 |
+
+Seenest 不会采集首页信息流、私信、Cookie、密码，也不会记录无关网站的浏览活动。
+
+## 工作方式
+
+```text
+打开已支持的内容详情页
+  -> 等待页面内容渲染完成
+  -> 提取公开正文与元数据
+  -> 按平台和内容 ID 去重
+  -> 保存或更新到本地 IndexedDB
+  -> 停止本次短时 DOM 监听
+```
+
+X 使用单页应用路由，因此 Seenest 会进行轻量的地址检查。DOM 观察器只在短时采集会话中运行，并在采集成功、超时或切换页面后停止。
+
+## 从源码安装
+
+需要当前版本的 Node.js、npm，以及支持 Manifest V3 的 Chrome 或其他 Chromium 浏览器。
+
+1. 克隆或下载本仓库。
+2. 安装依赖并构建扩展：
+
+   ```bash
+   npm ci
+   npm run build
+   ```
+
+3. 打开 `chrome://extensions`。
+4. 开启右上角的“开发者模式”。
+5. 点击“加载已解压的扩展程序”，选择项目中的 `.output/chrome-mv3` 文件夹。
+6. 打开一个已支持的 X 帖子或文章详情页，然后从浏览器工具栏打开 Seenest。
+
+更新本地安装版本时，拉取最新代码，重新运行 `npm ci` 和 `npm run build`，再到 `chrome://extensions` 中点击现有 Seenest 卡片上的“重新加载”。只要继续加载同一个解压目录，Chrome 会更新现有扩展，不会另外安装一份。
+
+## 开发
+
+```bash
+npm ci
+npm run dev
+```
+
+如需查看带本地演示数据的记录页面：
+
+```bash
+npm run preview:ui
+```
+
+随后访问 `http://localhost:3000/preview.html`。预览页面使用独立的网站数据库，不会读取或修改真实扩展数据。
+
+检查代码并生成生产安装包：
+
+```bash
+npm run typecheck
+npm run build
+npm run zip
+```
+
+构建文件和 ZIP 安装包会生成到 `.output/`，该目录不会提交到 Git。面向用户发布的 ZIP 或 CRX 应上传到 GitHub Releases，不要放进源码目录。
+
+## 项目结构
+
+```text
+entrypoints/       后台、采集脚本、弹窗和浏览记录页面入口
+src/db/            IndexedDB 数据结构与历史记录仓库
+src/parsers/       各平台的路由识别和页面解析器
+src/storage/       设置、持久化与可选的本地备份
+src/export/        数据导出实现
+src/components/    共用界面组件
+public/icons/      正式使用的扩展图标和 Logo
+preview/           本地界面预览数据
+```
+
+工程配置和 `package-lock.json` 属于项目源码，应当提交。依赖目录、构建结果和仅供本地使用的项目文件会被忽略。
+
+## 本地数据与权限
+
+| 权限 | 用途 |
+| --- | --- |
+| `storage` | 将扩展设置保存到 `chrome.storage.local` |
+| `unlimitedStorage` | 避免不断增长的 IndexedDB 历史受到普通扩展配额影响 |
+| `alarms` | 对可选的 JSON 自动快照进行延迟合并，避免频繁写文件 |
+| `x.com` / `twitter.com` | 只在当前已支持的页面运行采集适配器 |
+
+历史记录和备份文件授权保存在 IndexedDB。只有用户主动选择并授权一个本地 JSON 文件后，Seenest 才会写入自动快照。卸载扩展可能同时删除浏览器管理的本地数据库，如果记录很重要，请先导出或开启备份。
+
+## 技术栈
+
+| 模块 | 技术 |
+| --- | --- |
+| 浏览器扩展 | Chrome Manifest V3、WXT |
+| 界面 | React、TypeScript |
+| 本地数据库 | IndexedDB、Dexie |
+| Excel 导出 | write-excel-file |
+
+## 后续计划
+
+- 增加更多由用户主动授权的内容平台适配器
+- 持续兼容网站页面结构变化
+- 完善备份恢复与数据迁移流程
+- 坚持本地优先，并把权限限制在用户启用的平台范围内
+
+Seenest 仍在持续迭代，已支持的网站页面结构也可能随时发生变化。
+
+## 许可证
+
+本项目采用 [MIT License](./LICENSE) 开源。

@@ -6,6 +6,7 @@ export interface XDetailRoute {
 
 const RESERVED_HANDLES = new Set(['home', 'explore', 'notifications', 'messages', 'search', 'settings', 'compose', 'i']);
 
+// 只匹配帖子和长文章详情路由，首页信息流、搜索、私信等页面会直接返回 null。
 export function matchXDetailRoute(input: string): XDetailRoute | null {
   let url: URL;
   try {
@@ -27,6 +28,7 @@ export function matchXDetailRoute(input: string): XDetailRoute | null {
   return null;
 }
 
+// 去掉查询参数和分享追踪参数，使用稳定地址作为导出与跳转链接。
 export function canonicalizeXUrl(input: string, route: XDetailRoute): string {
   if (route.kind === 'status') return `https://x.com/${route.handle}/status/${route.id}`;
   return `https://x.com/i/article/${route.id}`;

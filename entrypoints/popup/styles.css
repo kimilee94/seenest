@@ -5,11 +5,7 @@ button { font: inherit; }
 .popup-shell { padding: 14px; }
 header { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 13px; }
 .brand { display: flex; align-items: center; gap: 8px; }
-.brand-logo { width: 28px; height: 28px; position: relative; display: block; }
-.brand-logo i, .brand-logo b, .brand-logo em { position: absolute; left: 5px; width: 18px; height: 8px; border: 3px solid #247cf2; border-top: 0; transform: rotate(45deg) skew(-4deg,-4deg); }
-.brand-logo i { top: 2px; }
-.brand-logo b { top: 8px; opacity: .72; }
-.brand-logo em { top: 14px; opacity: .42; }
+.brand-logo { width: 28px; height: 28px; display: block; object-fit: contain; }
 .brand-text { display: flex; align-items: baseline; gap: 6px; }
 .brand-text strong { font-size: 15px; letter-spacing: -.025em; }
 .brand-text small { color: #758294; font-size: 10px; }
