@@ -143,6 +143,14 @@ function Avatar({ record }: { record: HistoryRecord }) {
   );
 }
 
+/** 旧记录没有独立主页字段时，根据已保存的 X 用户名安全补全作者主页。 */
+function getAuthorProfileUrl(record: HistoryRecord): string {
+  if (record.authorProfileUrl) return record.authorProfileUrl;
+  if (record.source !== 'x') return '';
+  const handle = record.authorHandle.replace(/^@/, '');
+  return /^[A-Za-z0-9_]+$/.test(handle) ? `https://x.com/${handle}` : '';
+}
+
 /** 顶部 Excel 导出按钮图标，使用 currentColor 与按钮状态保持一致。 */
 function ExcelIcon() {
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M6 3.5h8l4 4V20.5H6z" /><path d="M14 3.5v4h4M9 11h6M9 15h6M12 9v8" /></svg>;
@@ -174,9 +182,14 @@ function EngagementStats({ record }: { record: HistoryRecord }) {
 
 /** 渲染单条时光记录，包括内容摘要、作者信息、浏览时间和原文入口。 */
 function HistoryRow({ record }: { record: HistoryRecord }) {
+  const authorProfileUrl = getAuthorProfileUrl(record);
   return (
     <article className="history-row">
-      <Avatar record={record} />
+      {authorProfileUrl ? (
+        <a className="avatar-profile-link" href={authorProfileUrl} target="_blank" rel="noreferrer" aria-label={`打开 ${record.authorName} 的主页`} title="打开作者主页">
+          <Avatar record={record} />
+        </a>
+      ) : <Avatar record={record} />}
       <div className="history-content">
         <div className="title-line">
           <a href={record.url} target="_blank" rel="noreferrer">{record.title}</a>
@@ -184,8 +197,15 @@ function HistoryRow({ record }: { record: HistoryRecord }) {
         </div>
         <p>{record.contentText}</p>
         <div className="item-meta">
-          <strong>{record.authorName}</strong>
-          {record.authorHandle ? <span>{record.authorHandle}</span> : null}
+          {authorProfileUrl ? (
+            <a className="author-profile-link" href={authorProfileUrl} target="_blank" rel="noreferrer" title="打开作者主页">
+              <strong>{record.authorName}</strong>
+              {record.authorHandle ? <span>{record.authorHandle}</span> : null}
+            </a>
+          ) : <>
+            <strong>{record.authorName}</strong>
+            {record.authorHandle ? <span>{record.authorHandle}</span> : null}
+          </>}
           <i />
           <span>{formatPublishedAt(record.publishedAt)}</span>
           {record.visitCount > 1 ? <><i /><span>看过 {record.visitCount} 次</span></> : null}

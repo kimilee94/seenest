@@ -73,7 +73,7 @@ export async function queryHistoryPage(options: HistoryPageQuery): Promise<Histo
   }
 
   const matches = (await createHistoryCollection(options.source, options.timeFilter).toArray())
-    .filter((record) => `${record.title} ${record.contentText} ${record.authorName} ${record.authorHandle} ${record.url}`
+    .filter((record) => `${record.title} ${record.contentText} ${record.authorName} ${record.authorHandle} ${record.authorProfileUrl ?? ''} ${record.url}`
       .toLocaleLowerCase().includes(normalizedQuery))
     .sort((left, right) => Date.parse(left.lastVisitedAt) - Date.parse(right.lastVisitedAt));
   if (options.newestFirst) matches.reverse();

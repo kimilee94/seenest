@@ -100,6 +100,8 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid 
 /* 悬停一秒后沿参考曲线逐渐提速；666 圈提供明显加速感，59 秒负责控制完整提速过程。 */
 .avatar-shell:hover .author-avatar { transform: rotate(666turn); transition-delay: 1s; transition-property: all; transition-duration: 59s; transition-timing-function: cubic-bezier(.34, 0, .84, 1); }
 .avatar-shell:hover { box-shadow: 0 5px 13px rgba(38, 76, 124, .16); }
+.avatar-profile-link { width: 36px; height: 36px; display: block; border-radius: 50%; text-decoration: none; }
+.avatar-profile-link:focus-visible { border-radius: 50%; outline-offset: 3px; }
 .history-content { min-width: 0; }
 .title-line { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .title-line a { color: var(--text-1); font-size: 14px; line-height: 1.35; font-weight: 650; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -108,6 +110,8 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid 
 .history-content > p { color: var(--text-2); font-size: 12px; line-height: 1.6; margin: 8px 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-meta { display: flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 11px; min-width: 0; }
 .item-meta strong { color: #344253; font-size: 11px; font-weight: 700; }
+.author-profile-link { min-width: 0; display: inline-flex; align-items: center; gap: 6px; color: inherit; text-decoration: none; }
+.author-profile-link:hover strong, .author-profile-link:hover span { color: var(--blue); }
 .item-meta i { width: 2px; height: 2px; border-radius: 50%; background: #b4bcc6; margin: 0 2px; flex: 0 0 auto; }
 .engagement-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 7px; color: #8a95a3; font-size: 10px; }
 .engagement-meta span { display: inline-flex; align-items: baseline; gap: 3px; }
@@ -233,7 +237,7 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid 
   .panel-head > div span { display: none; }
   .history-groups { padding: 0 7px 7px; }
   .history-row { grid-template-columns: 34px minmax(0, 1fr); gap: 9px; padding: 13px 5px; }
-  .avatar-shell, .author-avatar { width: 32px; height: 32px; }
+  .avatar-shell, .author-avatar, .avatar-profile-link { width: 32px; height: 32px; }
   .visit-info { grid-column: 2; height: auto; border: 0; padding: 0; flex-direction: row; align-items: center; gap: 6px; margin-top: -3px; }
   .visit-info > span { margin: 0; }
   .visit-info a { margin: 0 0 0 auto; }

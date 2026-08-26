@@ -1,7 +1,7 @@
 import type { CapturedHistoryRecord, ContentType, EngagementMetrics } from '../../types/history';
 import { canonicalizeXUrl, matchXDetailRoute } from './route';
 
-const PARSER_VERSION = 6;
+const PARSER_VERSION = 7;
 const SPACE_PATTERN = /\s+/g;
 // X 的长文章在不同入口下可能使用不同容器，集中维护选择器便于后续适配页面改版。
 const ARTICLE_VIEW_SELECTOR = [
@@ -164,6 +164,7 @@ function parseIdentity(root: ParentNode, routeHandle: string) {
   const identityText = cleanText(userName?.textContent);
   const handleMatch = identityText.match(/@([A-Za-z0-9_]+)/);
   const handle = handleMatch?.[1] ?? routeHandle;
+  const normalizedHandle = handle.replace(/^@/, '');
   const authorName = cleanText(identityText.split(/@[A-Za-z0-9_]+/)[0]) || handle || '未知发布人';
   const avatar = Array.from(root.querySelectorAll<HTMLImageElement>('img')).find((image) =>
     /profile_images|profile_banners/i.test(image.src),
@@ -171,7 +172,9 @@ function parseIdentity(root: ParentNode, routeHandle: string) {
 
   return {
     authorName,
-    authorHandle: handle ? `@${handle.replace(/^@/, '')}` : '',
+    authorHandle: normalizedHandle ? `@${normalizedHandle}` : '',
+    // 保存作者主页而不是在展示层依赖当前帖子 URL，未来导出或迁移后仍可直接访问。
+    authorProfileUrl: normalizedHandle ? `https://x.com/${normalizedHandle}` : '',
     authorAvatarUrl: avatar?.src ?? '',
   };
 }

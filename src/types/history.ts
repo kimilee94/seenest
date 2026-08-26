@@ -21,6 +21,8 @@ export interface HistoryRecord extends EngagementMetrics {
   contentText: string;
   authorName: string;
   authorHandle: string;
+  /** 作者公开主页；可选以兼容升级前保存的历史记录和旧版 JSON 备份。 */
+  authorProfileUrl?: string;
   authorAvatarUrl: string;
   publishedAt: string | null;
   firstVisitedAt: string;

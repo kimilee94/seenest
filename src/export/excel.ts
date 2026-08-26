@@ -13,7 +13,7 @@ const EXCEL_DATE_FORMAT = new Intl.DateTimeFormat('zh-CN', {
 });
 
 // 列顺序同时用于表头和数据行，保证导出的表格字段稳定、便于二次整理。
-const HEADERS = ['类型', '标题', '正文', '发布人', '用户名', '发布时间', '评论数', '转发数', '浏览量', '收藏量', '喜欢数', '首次访问', '最近访问', '访问次数', '原始链接'];
+const HEADERS = ['类型', '标题', '正文', '发布人', '用户名', '作者主页', '发布时间', '评论数', '转发数', '浏览量', '收藏量', '喜欢数', '首次访问', '最近访问', '访问次数', '原始链接'];
 
 /** 将可空的 ISO 时间转换为 Excel 中易读的本地日期时间。 */
 function formatExcelDate(value: string | null): string {
@@ -37,6 +37,9 @@ export function createHistorySheetData(records: HistoryRecord[]): SheetData {
     { value: record.contentText, wrap: true, alignVertical: 'top' },
     record.authorName,
     record.authorHandle,
+    record.authorProfileUrl
+      ? { value: record.authorProfileUrl, textColor: '#247CF2', textDecoration: { underline: true }, wrap: true }
+      : '',
     formatExcelDate(record.publishedAt),
     record.replyCount ?? '',
     record.repostCount ?? '',
@@ -65,6 +68,7 @@ export async function exportHistoryExcel(records: HistoryRecord[]): Promise<void
       { width: 58 },
       { width: 18 },
       { width: 18 },
+      { width: 34 },
       { width: 22 },
       { width: 11 },
       { width: 11 },
