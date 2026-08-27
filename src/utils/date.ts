@@ -1,6 +1,9 @@
-const DATE_FORMATTER = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' });
-const TIME_FORMATTER = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
-const WEEKDAY_FORMATTER = new Intl.DateTimeFormat('zh-CN', { weekday: 'long' });
+import type { Locale } from '../i18n';
+
+/** 根据当前界面语言创建格式化器，避免切换语言后仍显示中文日期。 */
+function formatter(locale: Locale, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'zh-CN', options);
+}
 
 /** 按设备本地时区生成 YYYY-MM-DD 键，避免 UTC 跨日导致记录分组错误。 */
 export function localDateKey(input: string | Date): string {
@@ -18,25 +21,26 @@ export function dayDistance(input: string, now = new Date()): number {
 }
 
 /** 将日期转换为“今天”“昨天”或本地星期名称。 */
-export function relativeDayLabel(input: string, now = new Date()): string {
+export function relativeDayLabel(input: string, locale: Locale = 'zh-CN', now = new Date()): string {
   const distance = dayDistance(input, now);
-  if (distance === 0) return '今天';
-  if (distance === 1) return '昨天';
-  return WEEKDAY_FORMATTER.format(new Date(input));
+  if (distance === 0) return locale === 'en' ? 'Today' : '今天';
+  if (distance === 1) return locale === 'en' ? 'Yesterday' : '昨天';
+  return formatter(locale, { weekday: 'long' }).format(new Date(input));
 }
 
 /** 将时间格式化为本地化的月日文本。 */
-export function formatDate(input: string): string {
-  return DATE_FORMATTER.format(new Date(input));
+export function formatDate(input: string, locale: Locale = 'zh-CN'): string {
+  return formatter(locale, { month: locale === 'en' ? 'short' : 'long', day: 'numeric' }).format(new Date(input));
 }
 
 /** 将时间格式化为 24 小时制的时分文本。 */
-export function formatTime(input: string): string {
-  return TIME_FORMATTER.format(new Date(input));
+export function formatTime(input: string, locale: Locale = 'zh-CN'): string {
+  return formatter(locale, { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(input));
 }
 
 /** 格式化内容发布时间；来源未提供时间时返回明确的缺失提示。 */
-export function formatPublishedAt(input: string | null): string {
-  if (!input) return '发布时间未知';
-  return `发布于 ${formatDate(input)} ${formatTime(input)}`;
+export function formatPublishedAt(input: string | null, locale: Locale = 'zh-CN'): string {
+  if (!input) return locale === 'en' ? 'Published time unknown' : '发布时间未知';
+  const dateTime = `${formatDate(input, locale)} ${formatTime(input, locale)}`;
+  return locale === 'en' ? `Published ${dateTime}` : `发布于 ${dateTime}`;
 }

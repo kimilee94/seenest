@@ -4,6 +4,8 @@ import { App } from '../entrypoints/dashboard/App';
 import '../entrypoints/dashboard/styles.css';
 import { db } from '../src/db/database';
 import type { HistoryRecord } from '../src/types/history';
+import { getSettings } from '../src/storage/settings';
+import { applyLocale, applyTheme } from '../src/theme/apply-theme';
 
 const REAL_PREVIEW_AVATAR = 'https://pbs.twimg.com/profile_images/2089912170226286592/hNAxM0DA_400x400.jpg';
 
@@ -70,6 +72,9 @@ async function seedPreviewHistory(): Promise<void> {
 }
 
 await seedPreviewHistory();
+const previewSettings = await getSettings();
+applyTheme(previewSettings.theme);
+applyLocale(previewSettings.locale);
 
 const root = document.getElementById('root');
 if (!root) throw new Error('找不到预览页面根节点');

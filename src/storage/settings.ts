@@ -1,9 +1,19 @@
+import type { Locale } from '../i18n';
+
+export type ThemeMode = 'dark' | 'system' | 'light';
+
 export interface SeenestSettings {
   captureEnabled: boolean;
+  theme: ThemeMode;
+  locale: Locale;
 }
 
 const SETTINGS_KEY = 'seenestSettings';
-export const DEFAULT_SETTINGS: SeenestSettings = { captureEnabled: true };
+export const DEFAULT_SETTINGS: SeenestSettings = {
+  captureEnabled: true,
+  theme: 'system',
+  locale: 'zh-CN',
+};
 
 /** 判断当前代码是否运行在具有扩展存储 API 的真实浏览器扩展环境中。 */
 function hasExtensionStorage(): boolean {

@@ -1,6 +1,23 @@
-:root { color-scheme: light; }
+:root {
+  --popup-bg: #f5f7fa;
+  --popup-surface: #fff;
+  --popup-text: #27313d;
+  --popup-muted: #6b7686;
+  --popup-line: #dce8f8;
+  --popup-soft: #edf5ff;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --popup-bg: #10151c;
+  --popup-surface: #171d25;
+  --popup-text: #edf2f8;
+  --popup-muted: #9ba8b9;
+  --popup-line: #2b3746;
+  --popup-soft: #172d4a;
+  color-scheme: dark;
+}
 * { box-sizing: border-box; }
-body { margin: 0; width: 310px; background: #f5f7fa; color: #27313d; font-family: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; }
+body { margin: 0; width: 310px; background: var(--popup-bg); color: var(--popup-text); font-family: SpecialSymbol, DINRegular, -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Hiragino Sans GB", "Segoe UI", "Microsoft YaHei", "微软雅黑", sans-serif; -webkit-font-smoothing: antialiased; }
 button { font: inherit; }
 .popup-shell { padding: 14px; }
 header { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 13px; }
@@ -8,7 +25,7 @@ header { display: flex; align-items: center; justify-content: space-between; pad
 .brand-logo { width: 28px; height: 28px; display: block; object-fit: contain; }
 .brand-text { display: flex; align-items: baseline; gap: 6px; }
 .brand-text strong { font-size: 15px; letter-spacing: -.025em; }
-.brand-text small { color: #758294; font-size: 10px; }
+.brand-text small { color: var(--popup-muted); font-size: 10px; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #aab2bd; box-shadow: 0 0 0 4px #e9edf1; }
 .status-dot.on { background: #27b475; box-shadow: 0 0 0 4px #e6f7ef; }
 .popup-status { background: linear-gradient(125deg,#297ff1,#1769dc); color: #fff; border-radius: 10px; padding: 16px; display: flex; align-items: center; justify-content: space-between; }
@@ -20,7 +37,7 @@ header { display: flex; align-items: center; justify-content: space-between; pad
 .popup-switch i { display: block; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.15); transition: transform .15s ease; }
 .popup-switch.on { background: rgba(255,255,255,.48); }
 .popup-switch.on i { transform: translateX(14px); }
-.popup-shell > p { margin: 12px 2px; color: #6b7686; font-size: 10px; line-height: 1.6; }
-.open-button { width: 100%; height: 38px; border: 1px solid #dce8f8; border-radius: 7px; background: #fff; color: #247cf2; font-size: 11px; font-weight: 650; cursor: pointer; }
-.open-button:hover { background: #edf5ff; }
+.popup-shell > p { margin: 12px 2px; color: var(--popup-muted); font-size: 10px; line-height: 1.6; }
+.open-button { width: 100%; height: 38px; border: 1px solid var(--popup-line); border-radius: 7px; background: var(--popup-surface); color: #4794fa; font-size: 11px; font-weight: 650; cursor: pointer; }
+.open-button:hover { background: var(--popup-soft); }
 .open-button span { margin-left: 5px; }
