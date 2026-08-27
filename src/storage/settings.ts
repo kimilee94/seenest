@@ -4,6 +4,10 @@ export type ThemeMode = 'dark' | 'system' | 'light';
 
 export interface SeenestSettings {
   captureEnabled: boolean;
+  enabledSources: {
+    x: boolean;
+    bilibili: boolean;
+  };
   theme: ThemeMode;
   locale: Locale;
 }
@@ -11,6 +15,7 @@ export interface SeenestSettings {
 const SETTINGS_KEY = 'seenestSettings';
 export const DEFAULT_SETTINGS: SeenestSettings = {
   captureEnabled: true,
+  enabledSources: { x: true, bilibili: false },
   theme: 'system',
   locale: 'zh-CN',
 };
@@ -24,15 +29,23 @@ function hasExtensionStorage(): boolean {
 export async function getSettings(): Promise<SeenestSettings> {
   if (!hasExtensionStorage()) {
     const previewSettings = localStorage.getItem(SETTINGS_KEY);
-    return previewSettings ? { ...DEFAULT_SETTINGS, ...JSON.parse(previewSettings) } : DEFAULT_SETTINGS;
+    if (!previewSettings) return DEFAULT_SETTINGS;
+    const parsed = JSON.parse(previewSettings) as Partial<SeenestSettings>;
+    return { ...DEFAULT_SETTINGS, ...parsed, enabledSources: { ...DEFAULT_SETTINGS.enabledSources, ...parsed.enabledSources } };
   }
   const stored = await browser.storage.local.get(SETTINGS_KEY);
-  return { ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] as Partial<SeenestSettings> | undefined) };
+  const settings = stored[SETTINGS_KEY] as Partial<SeenestSettings> | undefined;
+  return { ...DEFAULT_SETTINGS, ...settings, enabledSources: { ...DEFAULT_SETTINGS.enabledSources, ...settings?.enabledSources } };
 }
 
 /** 合并局部设置并持久化；普通网页预览环境使用 localStorage 作为兼容回退。 */
 export async function updateSettings(patch: Partial<SeenestSettings>): Promise<SeenestSettings> {
-  const next = { ...(await getSettings()), ...patch };
+  const current = await getSettings();
+  const next = {
+    ...current,
+    ...patch,
+    enabledSources: { ...current.enabledSources, ...patch.enabledSources },
+  };
   if (!hasExtensionStorage()) {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
     return next;

@@ -13,7 +13,7 @@ const EXCEL_DATE_FORMAT = new Intl.DateTimeFormat('zh-CN', {
 });
 
 // 列顺序同时用于表头和数据行，保证导出的表格字段稳定、便于二次整理。
-const HEADERS = ['类型', '标题', '正文', '发布人', '用户名', '作者主页', '发布时间', '评论数', '转发数', '浏览量', '收藏量', '喜欢数', '首次访问', '最近访问', '访问次数', '原始链接'];
+const HEADERS = ['来源', '类型', '标题', '正文', '发布人', '用户名', '作者主页', '发布时间', '评论数', '转发数', '分享数', '浏览量', '收藏量', '喜欢数', '视频时长（秒）', '媒体类型', '媒体链接', '媒体预览图', '首次访问', '最近访问', '访问次数', '原始链接'];
 
 /** 将可空的 ISO 时间转换为 Excel 中易读的本地日期时间。 */
 function formatExcelDate(value: string | null): string {
@@ -32,7 +32,8 @@ export function createHistorySheetData(records: HistoryRecord[]): SheetData {
   }));
 
   const rows: SheetData = records.map((record) => [
-    record.contentType === 'article' ? '文章' : '帖子',
+    record.source === 'bilibili' ? '哔哩哔哩' : record.source === 'x' ? 'X / Twitter' : record.source,
+    record.contentType === 'article' ? '文章' : record.contentType === 'video' ? '视频' : '帖子',
     { value: record.title, wrap: true, alignVertical: 'top' },
     { value: record.contentText, wrap: true, alignVertical: 'top' },
     record.authorName,
@@ -43,9 +44,14 @@ export function createHistorySheetData(records: HistoryRecord[]): SheetData {
     formatExcelDate(record.publishedAt),
     record.replyCount ?? '',
     record.repostCount ?? '',
+    record.shareCount ?? '',
     record.viewCount ?? '',
     record.bookmarkCount ?? '',
     record.likeCount ?? '',
+    record.durationSeconds ?? '',
+    record.mediaType === 'video' ? '视频' : record.mediaType === 'image' ? '图片' : '',
+    record.mediaUrl ? { value: record.mediaUrl, textColor: '#247CF2', textDecoration: { underline: true }, wrap: true } : '',
+    record.mediaPreviewUrl ? { value: record.mediaPreviewUrl, textColor: '#247CF2', textDecoration: { underline: true }, wrap: true } : '',
     formatExcelDate(record.firstVisitedAt),
     formatExcelDate(record.lastVisitedAt),
     record.visitCount,
@@ -64,6 +70,7 @@ export async function exportHistoryExcel(records: HistoryRecord[]): Promise<void
     showGridLines: true,
     columns: [
       { width: 9 },
+      { width: 12 },
       { width: 34 },
       { width: 58 },
       { width: 18 },
@@ -72,9 +79,14 @@ export async function exportHistoryExcel(records: HistoryRecord[]): Promise<void
       { width: 22 },
       { width: 11 },
       { width: 11 },
+      { width: 11 },
+      { width: 14 },
       { width: 13 },
       { width: 11 },
       { width: 11 },
+      { width: 11 },
+      { width: 48 },
+      { width: 48 },
       { width: 22 },
       { width: 22 },
       { width: 11 },

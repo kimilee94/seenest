@@ -1,7 +1,7 @@
-import type { CapturedHistoryRecord, ContentType, EngagementMetrics } from '../../types/history';
+import type { CapturedHistoryRecord, ContentType, EngagementMetrics, MediaType } from '../../types/history';
 import { canonicalizeXUrl, matchXDetailRoute } from './route';
 
-const PARSER_VERSION = 7;
+const PARSER_VERSION = 8;
 const SPACE_PATTERN = /\s+/g;
 // X 的长文章在不同入口下可能使用不同容器，集中维护选择器便于后续适配页面改版。
 const ARTICLE_VIEW_SELECTOR = [
@@ -179,6 +179,95 @@ function parseIdentity(root: ParentNode, routeHandle: string) {
   };
 }
 
+interface ParsedMedia {
+  mediaType?: MediaType;
+  mediaUrl?: string;
+  mediaPreviewUrl?: string;
+  mediaAlt?: string;
+}
+
+/** 只保存可跨页面继续访问的网络地址，排除 X 播放器生成的临时 blob: 地址。 */
+function persistentMediaUrl(value: string | null | undefined): string {
+  const url = cleanText(value);
+  return /^https?:\/\//i.test(url) ? url : '';
+}
+
+/** 排除头像、表情与图标，确保列表预览来自帖子或文章正文。 */
+function isContentImage(image: HTMLImageElement): boolean {
+  const src = persistentMediaUrl(image.currentSrc || image.src || image.getAttribute('src'));
+  if (!src) return false;
+  return !/profile_images|profile_banners|emoji|hashflags|abs\.twimg\.com\/emoji/i.test(src);
+}
+
+/** 兼容播放器把封面放在相邻 img 或内联 background-image 中的页面结构。 */
+function readVideoPreviewUrl(video: HTMLVideoElement, mediaRoot: ParentNode): string {
+  const poster = persistentMediaUrl(video.poster || video.getAttribute('poster'));
+  if (poster) return poster;
+
+  const playerRoot = video.closest<HTMLElement>('[data-testid*="video" i], [aria-label*="video" i]')
+    ?? video.parentElement?.parentElement
+    ?? video.parentElement;
+  const previewImage = playerRoot?.querySelector<HTMLImageElement>(
+    'img[src*="video_thumb"], img[src*="amplify_video_thumb"], img[src*="ext_tw_video_thumb"], [aria-label="Image"] img',
+  ) ?? mediaRoot.querySelector<HTMLImageElement>(
+    '[data-testid*="video" i] img, img[src*="video_thumb"], img[src*="amplify_video_thumb"], img[src*="ext_tw_video_thumb"]',
+  );
+  const imageUrl = previewImage && isContentImage(previewImage)
+    ? persistentMediaUrl(previewImage.currentSrc || previewImage.src || previewImage.getAttribute('src'))
+    : '';
+  if (imageUrl) return imageUrl;
+
+  const styledPoster = playerRoot?.querySelector<HTMLElement>('[style*="background-image"]');
+  const backgroundImage = styledPoster?.style.backgroundImage ?? '';
+  const cssUrl = backgroundImage.match(/url\(["']?([^"')]+)["']?\)/i)?.[1];
+  return persistentMediaUrl(cssUrl);
+}
+
+/**
+ * 从当前详情正文提取第一个媒体。长文章优先在阅读视图中取封面；普通帖子则
+ * 优先使用 X 的 `aria-label="Image"` 容器。视频只保存稳定地址和 poster，
+ * 无可用地址时返回空字段，展示层会自然隐藏媒体区域。
+ */
+function parsePrimaryMedia(root: ParentNode, contentType: ContentType, routeId: string): ParsedMedia {
+  const articleView = contentType === 'article'
+    ? root.querySelector<HTMLElement>(ARTICLE_VIEW_SELECTOR)
+    : null;
+  const mediaRoot: ParentNode = articleView ?? root;
+
+  const videos = Array.from(mediaRoot.querySelectorAll<HTMLVideoElement>('video'))
+    .filter((video) => !video.closest('[data-testid="quoteTweet"]'));
+  const video = videos[0];
+  if (video) {
+    const directUrl = [video.currentSrc, video.src, video.querySelector<HTMLSourceElement>('source[src]')?.src]
+      .map(persistentMediaUrl)
+      .find(Boolean) ?? '';
+    const previewUrl = readVideoPreviewUrl(video, mediaRoot);
+    if (directUrl || previewUrl) {
+      return {
+        mediaType: 'video',
+        mediaUrl: directUrl || undefined,
+        mediaPreviewUrl: previewUrl || undefined,
+      };
+    }
+  }
+
+  const images = Array.from(mediaRoot.querySelectorAll<HTMLImageElement>('[aria-label="Image"] img'))
+    .filter(isContentImage)
+    .filter((image) => !image.closest('[data-testid="quoteTweet"]'));
+  const preferredImage = contentType === 'article'
+    ? images[0]
+    : images.find((image) => image.closest<HTMLAnchorElement>('a[href]')?.getAttribute('href')?.includes(`/status/${routeId}`)) ?? images[0];
+  if (!preferredImage) return {};
+
+  const imageUrl = persistentMediaUrl(preferredImage.currentSrc || preferredImage.src || preferredImage.getAttribute('src'));
+  return imageUrl ? {
+    mediaType: 'image',
+    mediaUrl: imageUrl,
+    mediaPreviewUrl: imageUrl,
+    mediaAlt: cleanText(preferredImage.alt) || undefined,
+  } : {};
+}
+
 /** 限制列表标题长度，完整正文仍保存在 contentText 中。 */
 function truncateTitle(value: string): string {
   return value.length > 88 ? `${value.slice(0, 88).trim()}…` : value;
@@ -269,6 +358,7 @@ export function parseXDetail(document: Document, inputUrl: string, now = new Dat
   const publishedAt = timeElement?.dateTime || timeElement?.getAttribute('datetime') || null;
   const canonicalUrl = canonicalizeXUrl(inputUrl, route);
   const engagement = parseEngagementMetrics(root);
+  const media = parsePrimaryMedia(root, contentType, route.id);
 
   return {
     id: `x:${route.kind}:${route.id}`,
@@ -281,6 +371,7 @@ export function parseXDetail(document: Document, inputUrl: string, now = new Dat
     contentText,
     ...identity,
     ...engagement,
+    ...media,
     publishedAt,
     visitedAt: now.toISOString(),
     parserVersion: PARSER_VERSION,

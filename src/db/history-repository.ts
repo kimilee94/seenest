@@ -106,9 +106,16 @@ export async function upsertCapturedRecord(captured: CapturedHistoryRecord): Pro
       // 某项指标未渲染时沿用上一次有效值，避免把已抓到的数据覆盖为空。
       replyCount: captured.replyCount ?? existing.replyCount ?? null,
       repostCount: captured.repostCount ?? existing.repostCount ?? null,
+      shareCount: captured.shareCount ?? existing.shareCount ?? null,
       viewCount: captured.viewCount ?? existing.viewCount ?? null,
       bookmarkCount: captured.bookmarkCount ?? existing.bookmarkCount ?? null,
       likeCount: captured.likeCount ?? existing.likeCount ?? null,
+      // X 的媒体节点可能比正文更晚渲染；本次没抓到时保留上一次有效媒体。
+      mediaType: captured.mediaType ?? existing.mediaType,
+      mediaUrl: captured.mediaUrl ?? existing.mediaUrl,
+      mediaPreviewUrl: captured.mediaPreviewUrl ?? existing.mediaPreviewUrl,
+      mediaAlt: captured.mediaAlt ?? existing.mediaAlt,
+      durationSeconds: captured.durationSeconds ?? existing.durationSeconds ?? null,
       firstVisitedAt: existing.firstVisitedAt,
       lastVisitedAt: captured.visitedAt,
       visitCount: existing.visitCount + (isNewVisit ? 1 : 0),

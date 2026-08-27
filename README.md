@@ -14,15 +14,16 @@
 
 Seenest is a local-first browser extension for building a personal, searchable browsing history. It records supported detail pages after you open them, keeps one local record per item, and lets you return to the original page at any time.
 
-The product is designed for multiple content platforms. **The current early version supports X / Twitter detail pages only**, while adapters for additional user-authorized sites are planned.
+The product is designed for multiple content platforms. The current version supports **X / Twitter posts and articles** plus **Bilibili video detail pages**. Bilibili access is requested only when you explicitly enable its adapter.
 
 No Seenest account. No Seenest server. No analytics or AI processing. Your captured history stays on your device unless you explicitly export or back it up.
 
 ## Features
 
-- Automatically captures supported post and long-form article detail pages
+- Automatically captures supported post, long-form article, and video detail pages
 - Saves the original URL, title, content, author, avatar, publication time and last visit time
-- Captures public reply, repost, view, bookmark and like counts when X exposes them in the page
+- Captures public engagement exposed by each platform, including replies/comments, reposts or shares, views, bookmarks/favorites, and likes
+- Saves the Bilibili creator profile, avatar, video duration, and cover image; expiring playback URLs are intentionally not stored
 - Deduplicates repeated visits and updates the existing record instead of creating copies
 - Searches titles, content, authors and links
 - Filters by source and date, groups records by day, and paginates large histories
@@ -35,6 +36,7 @@ No Seenest account. No Seenest server. No analytics or AI processing. Your captu
 | Platform | Status | Captured pages |
 | --- | --- | --- |
 | X / Twitter | Supported | Post and long-form article detail pages |
+| Bilibili | Supported, opt-in | Video detail pages |
 | Other platforms | Planned | Added through separate adapters and explicit site access |
 
 Seenest does not collect home feeds, direct messages, cookies, passwords or browsing activity from unrelated sites.
@@ -43,14 +45,14 @@ Seenest does not collect home feeds, direct messages, cookies, passwords or brow
 
 ```text
 Open a supported detail page
-  -> wait for the page content to finish rendering
-  -> extract the public content and metadata
+  -> wait briefly for the page or route to settle
+  -> extract public content or request the platform's public metadata
   -> deduplicate by platform and content ID
   -> save or update the record in local IndexedDB
   -> stop the short-lived DOM observer
 ```
 
-X is a single-page application, so Seenest performs a lightweight route check. A DOM observer runs only during a short capture session and stops after a successful capture, timeout or route change.
+X is a single-page application, so Seenest performs a lightweight route check. A DOM observer runs only during a short capture session and stops after a successful capture, timeout or route change. For Bilibili, Seenest reads the BVID from the opened video URL and makes one cookie-free request to Bilibili's public video-details endpoint; it does not scan the home feed or keep a long-running DOM observer.
 
 ## Install from source
 
@@ -67,7 +69,7 @@ Requirements: a current Node.js release, npm, and Chrome or another Chromium-bas
 3. Open `chrome://extensions`.
 4. Enable **Developer mode**.
 5. Click **Load unpacked** and select `.output/chrome-mv3` from this project.
-6. Open a supported X post or article detail page, then open Seenest from the toolbar.
+6. Open a supported X detail page. To capture Bilibili videos, open **Site Access** in Seenest, enable Bilibili, approve the optional site permission, and then visit a video detail page.
 
 To update a locally installed copy, pull the latest code, run `npm ci` and `npm run build` again, then click **Reload** on the existing Seenest card in `chrome://extensions`. Chrome keeps the same extension installation when the same unpacked folder is reloaded.
 
@@ -118,7 +120,9 @@ Source configuration and `package-lock.json` are part of the project and should 
 | `storage` | Stores settings in `chrome.storage.local` |
 | `unlimitedStorage` | Protects a growing local IndexedDB history from normal extension quotas |
 | `alarms` | Debounces optional automatic JSON snapshots |
+| `scripting` | Registers the Bilibili adapter only after the user enables it |
 | `x.com` / `twitter.com` | Runs the current capture adapter only on supported pages |
+| `bilibili.com` / `api.bilibili.com` | Optional access used for opened video pages and one public metadata request |
 
 History records and backup file handles are stored in IndexedDB. An automatic snapshot is written only after the user chooses and authorizes a local JSON file. Uninstalling the extension may remove its browser-managed database, so export or enable a backup before uninstalling if the history matters.
 

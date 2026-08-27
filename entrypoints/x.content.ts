@@ -3,7 +3,8 @@ import { matchXDetailRoute } from '../src/parsers/x/route';
 import { getSettings } from '../src/storage/settings';
 import type { SeenestMessage } from '../src/types/messages';
 
-const METRICS_GRACE_PERIOD_MS = 3_000;
+// X 的正文通常先出现，图片、视频封面和互动数据会随后异步挂载；至少等待 3 秒再落库。
+const CONTENT_SETTLE_PERIOD_MS = 3_000;
 
 export default defineContentScript({
   matches: ['https://x.com/*', 'https://twitter.com/*'],
@@ -43,7 +44,7 @@ export default defineContentScript({
       if (!route) return false;
 
       const settings = await getSettings();
-      if (version !== sessionVersion || !settings.captureEnabled) return false;
+      if (version !== sessionVersion || !settings.captureEnabled || !settings.enabledSources.x) return false;
 
       const key = `${route.kind}:${route.id}`;
       if (capturedKey === key) {
@@ -54,11 +55,9 @@ export default defineContentScript({
       const record = parseXDetail(document, location.href);
       if (!record) return false;
 
-      // 正文通常早于互动栏出现；最多多等 3 秒，让评论、转发、浏览等数字完成渲染。
-      const hasEngagement = [record.replyCount, record.repostCount, record.viewCount, record.bookmarkCount, record.likeCount]
-        .some((count) => typeof count === 'number');
-      const remainingGraceTime = METRICS_GRACE_PERIOD_MS - (Date.now() - sessionStartedAt);
-      if (!hasEngagement && remainingGraceTime > 0) {
+      // 无论互动数据是否已出现，都给媒体节点一次固定渲染窗口，避免正文刚出现就过早结束监听。
+      const remainingGraceTime = CONTENT_SETTLE_PERIOD_MS - (Date.now() - sessionStartedAt);
+      if (remainingGraceTime > 0) {
         scheduleCapture(version, remainingGraceTime);
         return false;
       }
@@ -87,7 +86,7 @@ export default defineContentScript({
       sessionStartedAt = Date.now();
 
       const settings = await getSettings();
-      if (version !== sessionVersion || !settings.captureEnabled) return;
+      if (version !== sessionVersion || !settings.captureEnabled || !settings.enabledSources.x) return;
 
       if (await attemptCapture(version)) return;
       if (version !== sessionVersion) return;
@@ -110,9 +109,9 @@ export default defineContentScript({
 
     // 用户在插件界面切换记录开关时，当前页面无需刷新即可立即启动或停止采集。
     browser.storage.onChanged.addListener((changes, area) => {
-      const nextSettings = changes.seenestSettings?.newValue as { captureEnabled?: boolean } | undefined;
-      if (area !== 'local' || nextSettings?.captureEnabled === undefined) return;
-      if (nextSettings.captureEnabled) {
+      const nextSettings = changes.seenestSettings?.newValue as { captureEnabled?: boolean; enabledSources?: { x?: boolean } } | undefined;
+      if (area !== 'local' || !nextSettings) return;
+      if (nextSettings.captureEnabled && nextSettings.enabledSources?.x !== false) {
         capturedKey = '';
         void startCaptureSession();
       } else {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
+import packageMetadata from '../../package.json';
 import { Brand } from '../../src/components/Brand';
 import { db } from '../../src/db/database';
 import { translate, type Locale, type Translate } from '../../src/i18n';
@@ -22,7 +23,9 @@ import { getSettings, updateSettings, type ThemeMode } from '../../src/storage/s
 import { applyLocale, applyTheme } from '../../src/theme/apply-theme';
 import type { AutoBackupRecord, AutoBackupResult } from '../../src/types/backup';
 import type { ExportPayload, HistoryRecord } from '../../src/types/history';
+import type { SeenestMessage } from '../../src/types/messages';
 import { dayDistance, formatDate, formatPublishedAt, formatTime, localDateKey, relativeDayLabel } from '../../src/utils/date';
+import { BILIBILI_OPTIONAL_ORIGINS } from '../../src/sources/bilibili';
 
 type View = 'history' | 'permissions' | 'data';
 type TimeFilter = HistoryTimeFilter;
@@ -33,6 +36,14 @@ const PAGE_SIZE = 20;
 function sourceLabel(source: string, t: Translate): string {
   if (source === 'all') return t('source.all');
   if (source === 'x') return 'X / Twitter';
+  if (source === 'bilibili') return t('source.bilibili');
+  return source;
+}
+
+/** 列表来源标签使用短名，避免与内容类型一起挤压标题。 */
+function shortSourceLabel(source: string, t: Translate): string {
+  if (source === 'x') return t('source.xShort');
+  if (source === 'bilibili') return t('source.bilibiliShort');
   return source;
 }
 
@@ -45,6 +56,7 @@ function ChevronDownIcon() {
 function SourceIcon({ source }: { source: string }) {
   if (source === 'all') return <img className="source-symbol" src="/icons/source-all.svg" alt="" aria-hidden="true" />;
   if (source === 'x') return <img className="source-symbol" src="/icons/source-x.svg" alt="" aria-hidden="true" />;
+  if (source === 'bilibili') return <img className="source-symbol" src="/icons/source-bilibili.svg" alt="" aria-hidden="true" />;
   return <span className="source-letter" aria-hidden="true">{source.slice(0, 1).toUpperCase()}</span>;
 }
 
@@ -169,6 +181,7 @@ function EngagementStats({ record, locale, t }: { record: HistoryRecord; locale:
   const items = [
     [t('engagement.reply'), record.replyCount],
     [t('engagement.repost'), record.repostCount],
+    [t('engagement.share'), record.shareCount],
     [t('engagement.view'), record.viewCount],
     [t('engagement.bookmark'), record.bookmarkCount],
     [t('engagement.like'), record.likeCount],
@@ -185,8 +198,10 @@ function EngagementStats({ record, locale, t }: { record: HistoryRecord; locale:
 /** 渲染单条时光记录，包括内容摘要、作者信息、浏览时间和原文入口。 */
 function HistoryRow({ record, locale, t }: { record: HistoryRecord; locale: Locale; t: Translate }) {
   const authorProfileUrl = getAuthorProfileUrl(record);
+  const mediaImageUrl = record.mediaPreviewUrl || (record.mediaType !== 'video' ? record.mediaUrl : '');
+  const hasMedia = Boolean(mediaImageUrl || (record.mediaType === 'video' && record.mediaUrl));
   return (
-    <article className="history-row">
+    <article className={`history-row ${hasMedia ? 'has-media' : ''}`}>
       {authorProfileUrl ? (
         <a className="avatar-profile-link" href={authorProfileUrl} target="_blank" rel="noreferrer" aria-label={t('author.openProfile', { name: record.authorName })} title={t('action.openAuthor')}>
           <Avatar record={record} t={t} />
@@ -195,18 +210,24 @@ function HistoryRow({ record, locale, t }: { record: HistoryRecord; locale: Loca
       <div className="history-content">
         <div className="title-line">
           <a href={record.url} target="_blank" rel="noreferrer">{record.title}</a>
-          <span className="type-badge">{record.contentType === 'article' ? t('content.article') : t('content.post')}</span>
+          <span className="record-badges">
+            <span className={`source-badge source-${record.source}`} title={sourceLabel(record.source, t)}>
+              <span><SourceIcon source={record.source} /></span>
+              {shortSourceLabel(record.source, t)}
+            </span>
+            <span className="type-badge">{record.contentType === 'article' ? t('content.article') : record.contentType === 'video' ? t('content.video') : t('content.post')}</span>
+          </span>
         </div>
         <p>{record.contentText}</p>
         <div className="item-meta">
           {authorProfileUrl ? (
             <a className="author-profile-link" href={authorProfileUrl} target="_blank" rel="noreferrer" title={t('action.openAuthor')}>
               <strong>{record.authorName}</strong>
-              {record.authorHandle ? <span>{record.authorHandle}</span> : null}
+              {record.authorHandle && record.source !== 'bilibili' ? <span>{record.authorHandle}</span> : null}
             </a>
           ) : <>
             <strong>{record.authorName}</strong>
-            {record.authorHandle ? <span>{record.authorHandle}</span> : null}
+            {record.authorHandle && record.source !== 'bilibili' ? <span>{record.authorHandle}</span> : null}
           </>}
           <i />
           <span>{formatPublishedAt(record.publishedAt, locale)}</span>
@@ -214,6 +235,13 @@ function HistoryRow({ record, locale, t }: { record: HistoryRecord; locale: Loca
         </div>
         <EngagementStats record={record} locale={locale} t={t} />
       </div>
+      {hasMedia ? (
+        <div className="history-media" aria-label={record.mediaType === 'video' ? t('media.video') : undefined}>
+          {mediaImageUrl
+            ? <img src={mediaImageUrl} alt={record.mediaAlt || (record.mediaType === 'video' ? t('media.video') : record.title)} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+            : <video src={record.mediaUrl} muted preload="metadata" aria-label={t('media.video')} />}
+        </div>
+      ) : null}
       <div className="visit-info">
         <strong>{dayDistance(record.lastVisitedAt) < 2 ? formatTime(record.lastVisitedAt, locale) : formatDate(record.lastVisitedAt, locale)}</strong>
         <span>{dayDistance(record.lastVisitedAt) < 2 ? t('history.lastViewed') : t('history.viewedDate')}</span>
@@ -280,13 +308,13 @@ function Header({ view, setView, captureEnabled, onExportExcel, locale, theme, o
 }
 
 /** 根据当前是否存在筛选条件，展示无数据或无搜索结果提示。 */
-function EmptyState({ filtered, onReset, t }: { filtered: boolean; onReset: () => void; t: Translate }) {
+function EmptyState({ filtered, onReset, onOpenPermissions, t }: { filtered: boolean; onReset: () => void; onOpenPermissions: () => void; t: Translate }) {
   return (
     <div className="empty-state">
       <span className="empty-search" />
       <h3>{filtered ? t('history.emptyFilteredTitle') : t('history.emptyTitle')}</h3>
       <p>{filtered ? t('history.emptyFilteredText') : t('history.emptyText')}</p>
-      {filtered ? <button type="button" onClick={onReset}>{t('action.clearFilters')}</button> : <a className="empty-link" href="https://x.com/home" target="_blank" rel="noreferrer">{t('action.visitX')}</a>}
+      {filtered ? <button type="button" onClick={onReset}>{t('action.clearFilters')}</button> : <button className="empty-link" type="button" onClick={onOpenPermissions}>{t('action.visitSupported')}</button>}
     </div>
   );
 }
@@ -296,6 +324,8 @@ export function App() {
   const autoBackup = useLiveQuery(() => db.autoBackup.get(AUTO_BACKUP_KEY), [], undefined);
   const [view, setView] = useState<View>('history');
   const [captureEnabled, setCaptureEnabled] = useState(true);
+  const [xEnabled, setXEnabled] = useState(true);
+  const [bilibiliEnabled, setBilibiliEnabled] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>('system');
   const [locale, setLocale] = useState<Locale>('zh-CN');
   const [query, setQuery] = useState('');
@@ -307,6 +337,10 @@ export function App() {
   const [backupBusy, setBackupBusy] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
   const t: Translate = (key, values) => translate(locale, key, values);
+  // 真实扩展从 manifest 读取版本；普通网页预览使用当前演示版本。
+  const appVersion = typeof browser !== 'undefined' && browser.runtime?.getManifest
+    ? browser.runtime.getManifest().version
+    : packageMetadata.version;
 
   // 列表使用来源与时间索引按页读取；关键词搜索也只在本地执行。
   const historyPage = useLiveQuery(() => queryHistoryPage({
@@ -328,7 +362,7 @@ export function App() {
     return db.history.where('firstVisitedAt').aboveOrEqual(today.toISOString()).count();
   }, [], 0);
   const totalPages = Math.max(1, Math.ceil(historyPage.total / PAGE_SIZE));
-  const availableSources = useMemo(() => Array.from(new Set(['x', ...sourceOptions])), [sourceOptions]);
+  const availableSources = useMemo(() => Array.from(new Set(['x', ...(bilibiliEnabled ? ['bilibili'] : []), ...sourceOptions])), [bilibiliEnabled, sourceOptions]);
   const pageStart = historyPage.total ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
   const pageEnd = Math.min(currentPage * PAGE_SIZE, historyPage.total);
 
@@ -336,6 +370,8 @@ export function App() {
   useEffect(() => {
     void getSettings().then((settings) => {
       setCaptureEnabled(settings.captureEnabled);
+      setXEnabled(settings.enabledSources.x);
+      setBilibiliEnabled(settings.enabledSources.bilibili);
       setTheme(settings.theme);
       setLocale(settings.locale);
       applyTheme(settings.theme);
@@ -380,11 +416,41 @@ export function App() {
     return [...counts.entries()].sort(([a], [b]) => b.localeCompare(a)).slice(0, 4);
   }, [recentRecords]);
 
-  /** 更新界面状态并把自动记录开关持久化到扩展设置。 */
-  const toggleCapture = async () => {
-    const next = !captureEnabled;
-    setCaptureEnabled(next);
-    await updateSettings({ captureEnabled: next });
+  /** X 与其他来源独立开关；开启任一来源时同时恢复旧版的全局记录开关。 */
+  const toggleXCapture = async () => {
+    const next = !xEnabled;
+    setXEnabled(next);
+    if (next) setCaptureEnabled(true);
+    const current = await getSettings();
+    await updateSettings({
+      captureEnabled: next ? true : current.captureEnabled,
+      enabledSources: { ...current.enabledSources, x: next },
+    });
+  };
+
+  /** B 站使用可选站点权限；只有用户主动打开开关时浏览器才显示授权提示。 */
+  const toggleBilibiliCapture = async () => {
+    const next = !bilibiliEnabled;
+    if (next && typeof browser !== 'undefined') {
+      const granted = await browser.permissions.request({ origins: BILIBILI_OPTIONAL_ORIGINS });
+      if (!granted) {
+        setNotice(t('permissions.requestDenied'));
+        return;
+      }
+    }
+
+    setBilibiliEnabled(next);
+    if (next) setCaptureEnabled(true);
+    const current = await getSettings();
+    await updateSettings({
+      captureEnabled: next ? true : current.captureEnabled,
+      enabledSources: { ...current.enabledSources, bilibili: next },
+    });
+    if (typeof browser !== 'undefined') {
+      const message: SeenestMessage = { type: 'SEENEST_SYNC_SOURCE_REGISTRATION' };
+      await browser.runtime.sendMessage(message);
+    }
+    setNotice(next ? t('permissions.bilibiliEnabled') : t('permissions.bilibiliDisabled'));
   };
 
   /** 即时应用并持久化主题；system 模式会继续监听操作系统外观变化。 */
@@ -478,7 +544,7 @@ export function App() {
 
   return (
     <main className="page-shell">
-      <Header view={view} setView={setView} captureEnabled={captureEnabled} onExportExcel={() => void handleExportExcel()} locale={locale} theme={theme} onLocaleChange={(next) => void changeLocale(next)} onThemeChange={(next) => void changeTheme(next)} t={t} />
+      <Header view={view} setView={setView} captureEnabled={captureEnabled && (xEnabled || bilibiliEnabled)} onExportExcel={() => void handleExportExcel()} locale={locale} theme={theme} onLocaleChange={(next) => void changeLocale(next)} onThemeChange={(next) => void changeTheme(next)} t={t} />
       {notice ? <button className="toast" onClick={() => setNotice('')}>{notice}</button> : null}
 
       {view === 'history' ? (
@@ -514,25 +580,34 @@ export function App() {
                     <button type="button" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage === totalPages} aria-label={t('history.nextPage')}>›</button>
                   </div>
                 </nav> : null}
-              </> : <EmptyState filtered={Boolean(query || sourceFilter !== 'all' || timeFilter !== 'all')} onReset={resetFilters} t={t} />}
+              </> : <EmptyState filtered={Boolean(query || sourceFilter !== 'all' || timeFilter !== 'all')} onReset={resetFilters} onOpenPermissions={() => setView('permissions')} t={t} />}
             </section>
 
             <aside className="side-column">
               <section className="side-card status-card">
-                <div className="side-card-head"><h3>{t('sidebar.status')}</h3><span className={captureEnabled ? 'live-dot' : 'idle-dot'} /></div>
-                <div className="source-row"><span className="x-logo"><SourceIcon source="x" /></span><div><strong>X / Twitter</strong><small>{t('sidebar.authorized')}</small></div><button className={`switch ${captureEnabled ? 'on' : ''}`} onClick={() => void toggleCapture()} aria-label={captureEnabled ? t('capture.pause') : t('capture.enable')}><i /></button></div>
+                <div className="side-card-head"><h3>{t('sidebar.status')}</h3><span className={captureEnabled && (xEnabled || bilibiliEnabled) ? 'live-dot' : 'idle-dot'} /></div>
+                <div className="source-row"><span className="x-logo"><SourceIcon source="x" /></span><div><strong>X / Twitter</strong><small>{t('sidebar.authorized')}</small></div><button className={`switch ${xEnabled ? 'on' : ''}`} onClick={() => void toggleXCapture()} aria-label={xEnabled ? t('capture.pause') : t('capture.enable')}><i /></button></div>
+                <div className="source-row bilibili-source-row"><span className="x-logo"><SourceIcon source="bilibili" /></span><div><strong>{t('source.bilibili')}</strong><small>{bilibiliEnabled ? t('sidebar.bilibiliAuthorized') : t('sidebar.bilibiliDisabled')}</small></div><button className={`switch ${bilibiliEnabled ? 'on' : ''}`} onClick={() => void toggleBilibiliCapture()} aria-label={bilibiliEnabled ? t('capture.pause') : t('capture.enable')}><i /></button></div>
                 <div className="capture-rule"><span>✓</span><p><strong>{t('sidebar.detailOnly')}</strong>{t('sidebar.detailOnlyText')}</p></div>
                 <div className="capture-fields"><span>{t('sidebar.autoSave')}</span><p>{t('sidebar.fields')}</p></div>
               </section>
               <section className="side-card data-card"><div className="side-card-head"><h3>{t('sidebar.localMemory')}</h3><button onClick={() => setView('data')}>{t('action.manage')}</button></div><div className="data-grid"><div><strong>{totalCount}</strong><span>{t('sidebar.saved')}</span></div><div><strong>{todayCount}</strong><span>{t('sidebar.todayAdded')}</span></div></div><div className="local-note"><span>⌂</span><p><strong>{t('sidebar.localOnly')}</strong><small>{t('sidebar.notUploaded')}</small></p></div></section>
               <section className="side-card dates-card"><div className="side-card-head"><h3>{t('sidebar.calendar')}</h3><button onClick={() => setTimeFilter('all')}>{t('action.all')}</button></div>{recentDates.length ? recentDates.map(([date, count]) => <button className="date-row" key={date} onClick={() => { setQuery(''); setTimeFilter(date === localDateKey(new Date()) ? 'today' : 'week'); }}><span><strong>{relativeDayLabel(`${date}T12:00:00`, locale)}</strong><small>{formatDate(`${date}T12:00:00`, locale)}</small></span><b>{count}</b></button>) : <p className="side-empty">{t('sidebar.noDates')}</p>}</section>
+              <section className="side-card disclaimer-card">
+                <div className="disclaimer-heading">
+                  <svg aria-hidden="true" viewBox="0 0 20 20" fill="none"><path d="M10 2.5 16 5v4.4c0 3.8-2.3 6.5-6 8.1-3.7-1.6-6-4.3-6-8.1V5z" /><path d="M10 7v3.5M10 13.4h.01" /></svg>
+                  <strong>{t('sidebar.disclaimerTitle')}</strong>
+                </div>
+                <p>{t('sidebar.disclaimerText')}</p>
+                <span>{t('sidebar.version', { version: appVersion })}</span>
+              </section>
             </aside>
           </div>
         </>
       ) : null}
 
       {view === 'permissions' ? (
-        <section className="settings-page"><div className="settings-heading"><span>{t('permissions.eyebrow')}</span><h1>{t('permissions.title')}</h1><p>{t('permissions.subtitle')}</p></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="x" /></div><div className="permission-copy"><strong>X / Twitter</strong><span>{t('permissions.publicOnly')}</span><code>https://x.com/*</code></div><button className={`switch large ${captureEnabled ? 'on' : ''}`} onClick={() => void toggleCapture()} aria-label={captureEnabled ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="privacy-card"><strong>{t('permissions.minimum')}</strong><p>{t('permissions.minimumText')}</p></div></section>
+        <section className="settings-page"><div className="settings-heading"><span>{t('permissions.eyebrow')}</span><h1>{t('permissions.title')}</h1><p>{t('permissions.subtitle')}</p></div><div className="settings-list"><div className="settings-card"><div className="permission-logo"><SourceIcon source="x" /></div><div className="permission-copy"><strong>X / Twitter</strong><span>{t('permissions.publicOnly')}</span><code>https://x.com/*</code></div><button className={`switch large ${xEnabled ? 'on' : ''}`} onClick={() => void toggleXCapture()} aria-label={xEnabled ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="bilibili" /></div><div className="permission-copy"><strong>{t('source.bilibili')}</strong><span>{t('permissions.bilibiliPublicOnly')}</span><code>https://www.bilibili.com/video/*</code></div><button className={`switch large ${bilibiliEnabled ? 'on' : ''}`} onClick={() => void toggleBilibiliCapture()} aria-label={bilibiliEnabled ? t('capture.pause') : t('capture.enable')}><i /></button></div></div><div className="privacy-card"><strong>{t('permissions.minimum')}</strong><p>{t('permissions.minimumText')}</p></div></section>
       ) : null}
 
       {view === 'data' ? (
