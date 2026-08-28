@@ -24,6 +24,7 @@ import type { SeenestMessage } from '../src/types/messages';
 const AUTO_BACKUP_ALARM_NAME = 'seenest-auto-backup';
 const AUTO_BACKUP_DELAY_MS = 30_000;
 let bilibiliRequestInFlight = false;
+let bilibiliContentScriptSyncQueue: Promise<void> = Promise.resolve();
 
 /**
  * 把自动备份安排在最后一次记录变化的约 30 秒后。
@@ -54,24 +55,51 @@ function isTrustedBilibiliSender(url?: string): boolean {
   }
 }
 
-/** 根据用户的平台开关注册或撤销 B 站采集脚本；已有网站权限不会在暂停时擅自删除。 */
-async function syncBilibiliContentScript(): Promise<void> {
+/** 判断动态脚本错误是否只是浏览器状态已由另一条并发流程完成，便于安全地按幂等操作处理。 */
+function isExpectedContentScriptStateError(error: unknown, phrase: string): boolean {
+  return error instanceof Error && error.message.toLowerCase().includes(phrase.toLowerCase());
+}
+
+/** 根据用户的平台开关注册或撤销 B 站采集脚本；调用方通过串行队列避免重复注册竞争。 */
+async function reconcileBilibiliContentScript(): Promise<void> {
   const settings = await getSettings();
   const hasPermission = await browser.permissions.contains({ origins: BILIBILI_OPTIONAL_ORIGINS });
   const registered = await browser.scripting.getRegisteredContentScripts({ ids: [BILIBILI_CONTENT_SCRIPT_ID] });
   const shouldRegister = settings.enabledSources.bilibili && hasPermission;
 
   if (shouldRegister && !registered.length) {
-    await browser.scripting.registerContentScripts([{
-      id: BILIBILI_CONTENT_SCRIPT_ID,
-      js: [BILIBILI_CONTENT_SCRIPT_FILE],
-      matches: [BILIBILI_PAGE_ORIGIN],
-      runAt: 'document_idle',
-      persistAcrossSessions: true,
-    }]);
+    try {
+      await browser.scripting.registerContentScripts([{
+        id: BILIBILI_CONTENT_SCRIPT_ID,
+        js: [BILIBILI_CONTENT_SCRIPT_FILE],
+        matches: [BILIBILI_PAGE_ORIGIN],
+        runAt: 'document_idle',
+        persistAcrossSessions: true,
+      }]);
+    } catch (error) {
+      // Chrome 可能在查询与注册之间恢复持久化脚本，此时重复 ID 表示目标状态已经达成。
+      if (!isExpectedContentScriptStateError(error, 'duplicate script id')) throw error;
+    }
   } else if (!shouldRegister && registered.length) {
-    await browser.scripting.unregisterContentScripts({ ids: [BILIBILI_CONTENT_SCRIPT_ID] });
+    try {
+      await browser.scripting.unregisterContentScripts({ ids: [BILIBILI_CONTENT_SCRIPT_ID] });
+    } catch (error) {
+      // 另一条同步流程已经撤销脚本时无需再次报错。
+      if (!isExpectedContentScriptStateError(error, 'non-existent script id')) throw error;
+    }
   }
+}
+
+/**
+ * 后台启动、扩展升级和设置消息都可能同时要求同步脚本。
+ * 所有操作进入同一串行队列，并在这里收口异常，避免产生未处理的 Promise rejection。
+ */
+function syncBilibiliContentScript(): Promise<void> {
+  const task = bilibiliContentScriptSyncQueue.then(reconcileBilibiliContentScript, reconcileBilibiliContentScript);
+  bilibiliContentScriptSyncQueue = task.catch((error) => {
+    console.warn('[Seenest] Failed to sync Bilibili content script:', error);
+  });
+  return bilibiliContentScriptSyncQueue;
 }
 
 async function readBilibiliRequestGuard(): Promise<BilibiliRequestGuardState> {
