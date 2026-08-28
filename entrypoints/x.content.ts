@@ -124,7 +124,6 @@ export default defineContentScript({
       }
     });
 
-    window.addEventListener('unload', () => activeTimeTracker.destroy(), { once: true });
     void startCaptureSession();
   },
 });

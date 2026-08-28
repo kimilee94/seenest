@@ -64,7 +64,6 @@ export default defineContentScript({
       else activeTimeTracker.stop();
     });
 
-    window.addEventListener('unload', () => activeTimeTracker.destroy(), { once: true });
     currentRouteKey = matchBilibiliVideoRoute(location.href)?.bvid ?? '';
     void scheduleCapture();
   },
