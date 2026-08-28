@@ -15,7 +15,7 @@ function demoAvatar(initials: string, from: string, to: string): string {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
-/** 首次打开预览页时写入两条独立的演示数据，不会进入真实扩展数据库。 */
+/** 写入覆盖近 20 天的演示数据，方便直接检查日期轮播与精确日期筛选。 */
 async function seedPreviewHistory(): Promise<void> {
   const now = Date.now();
   const records: HistoryRecord[] = [
@@ -43,10 +43,10 @@ async function seedPreviewHistory(): Promise<void> {
       durationSeconds: 103, mediaType: 'video', mediaPreviewUrl: 'https://i0.hdslb.com/bfs/archive/574a8800db2b311a846b06be0cc446e98c41caa6.jpg',
     },
   ];
-  // 额外生成分页演示记录，让预览页可以直接检查第二页和分页边界。
-  const pageRecords: HistoryRecord[] = Array.from({ length: 22 }, (_, offset) => {
+  // 每 8 小时一条，共覆盖约 20 天；这些记录只存在于预览页的独立数据库中。
+  const pageRecords: HistoryRecord[] = Array.from({ length: 58 }, (_, offset) => {
     const index = offset + 3;
-    const visitedAt = new Date(now - index * 3 * 60 * 60_000).toISOString();
+    const visitedAt = new Date(now - index * 8 * 60 * 60_000).toISOString();
     return {
       id: `preview:status:${index}`,
       source: 'x',
@@ -54,7 +54,7 @@ async function seedPreviewHistory(): Promise<void> {
       postId: String(index),
       url: `https://x.com/seenest/status/${index}`,
       canonicalUrl: `https://x.com/seenest/status/${index}`,
-      title: index % 4 === 0 ? `第 ${index} 段时光：一篇值得重新阅读的长文章` : `第 ${index} 条自动留下的 X 浏览记录`,
+      title: index % 4 === 0 ? `第 ${index} 次所见：一篇值得重新阅读的长文章` : `第 ${index} 条回到 Seenest 的 X 内容`,
       contentText: '这是用于检查来源筛选、日期分组和分页边界的本地演示内容，不会上传到任何服务器。',
       authorName: index % 2 === 0 ? 'Seenest' : 'Miora',
       authorHandle: index % 2 === 0 ? '@seenest' : '@miora_notes',

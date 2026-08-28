@@ -1,28 +1,31 @@
 import writeExcelFile, { type Cell, type SheetData } from 'write-excel-file/browser';
+import type { Locale } from '../i18n';
 import type { HistoryRecord } from '../types/history';
 import { localDateKey } from '../utils/date';
 
-const EXCEL_DATE_FORMAT = new Intl.DateTimeFormat('zh-CN', {
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
-
-// 列顺序同时用于表头和数据行，保证导出的表格字段稳定、便于二次整理。
-const HEADERS = ['来源', '类型', '标题', '正文', '发布人', '用户名', '作者主页', '发布时间', '评论数', '转发数', '分享数', '浏览量', '收藏量', '喜欢数', '视频时长（秒）', '媒体类型', '媒体链接', '媒体预览图', '首次访问', '最近访问', '访问次数', '原始链接'];
+const EXCEL_COPY = {
+  'zh-CN': {
+    headers: ['来源', '类型', '标题', '正文', '发布人', '用户名', '作者主页', '发布时间', '评论数', '转发数', '分享数', '浏览量', '收藏量', '喜欢数', '视频时长（秒）', '媒体类型', '媒体链接', '媒体预览图', '首次收好', '最近看过', '看过次数', '原始链接'],
+    sourceBilibili: '哔哩哔哩', article: '文章', video: '视频', post: '帖子', image: '图片', sheet: 'Seenest 所见',
+  },
+  en: {
+    headers: ['Source', 'Type', 'Title', 'Content', 'Author', 'Username', 'Author Profile', 'Published At', 'Replies', 'Reposts', 'Shares', 'Views', 'Bookmarks', 'Likes', 'Video Duration (sec)', 'Media Type', 'Media URL', 'Media Preview', 'First Kept', 'Last Seen', 'Times Seen', 'Original URL'],
+    sourceBilibili: 'Bilibili', article: 'Article', video: 'Video', post: 'Post', image: 'Image', sheet: 'Seenest Archive',
+  },
+} as const;
 
 /** 将可空的 ISO 时间转换为 Excel 中易读的本地日期时间。 */
-function formatExcelDate(value: string | null): string {
-  return value ? EXCEL_DATE_FORMAT.format(new Date(value)) : '';
+function formatExcelDate(value: string | null, locale: Locale): string {
+  if (!value) return '';
+  return new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).format(new Date(value));
 }
 
 /** 把历史记录转换为包含样式表头和数据行的 Excel 工作表结构。 */
-export function createHistorySheetData(records: HistoryRecord[]): SheetData {
-  const headerRow: Cell[] = HEADERS.map((value) => ({
+export function createHistorySheetData(records: HistoryRecord[], locale: Locale = 'zh-CN'): SheetData {
+  const copy = EXCEL_COPY[locale];
+  const headerRow: Cell[] = copy.headers.map((value) => ({
     value,
     fontWeight: 'bold',
     textColor: '#FFFFFF',
@@ -32,8 +35,8 @@ export function createHistorySheetData(records: HistoryRecord[]): SheetData {
   }));
 
   const rows: SheetData = records.map((record) => [
-    record.source === 'bilibili' ? '哔哩哔哩' : record.source === 'x' ? 'X / Twitter' : record.source,
-    record.contentType === 'article' ? '文章' : record.contentType === 'video' ? '视频' : '帖子',
+    record.source === 'bilibili' ? copy.sourceBilibili : record.source === 'x' ? 'X / Twitter' : record.source,
+    record.contentType === 'article' ? copy.article : record.contentType === 'video' ? copy.video : copy.post,
     { value: record.title, wrap: true, alignVertical: 'top' },
     { value: record.contentText, wrap: true, alignVertical: 'top' },
     record.authorName,
@@ -41,7 +44,7 @@ export function createHistorySheetData(records: HistoryRecord[]): SheetData {
     record.authorProfileUrl
       ? { value: record.authorProfileUrl, textColor: '#247CF2', textDecoration: { underline: true }, wrap: true }
       : '',
-    formatExcelDate(record.publishedAt),
+    formatExcelDate(record.publishedAt, locale),
     record.replyCount ?? '',
     record.repostCount ?? '',
     record.shareCount ?? '',
@@ -49,11 +52,11 @@ export function createHistorySheetData(records: HistoryRecord[]): SheetData {
     record.bookmarkCount ?? '',
     record.likeCount ?? '',
     record.durationSeconds ?? '',
-    record.mediaType === 'video' ? '视频' : record.mediaType === 'image' ? '图片' : '',
+    record.mediaType === 'video' ? copy.video : record.mediaType === 'image' ? copy.image : '',
     record.mediaUrl ? { value: record.mediaUrl, textColor: '#247CF2', textDecoration: { underline: true }, wrap: true } : '',
     record.mediaPreviewUrl ? { value: record.mediaPreviewUrl, textColor: '#247CF2', textDecoration: { underline: true }, wrap: true } : '',
-    formatExcelDate(record.firstVisitedAt),
-    formatExcelDate(record.lastVisitedAt),
+    formatExcelDate(record.firstVisitedAt, locale),
+    formatExcelDate(record.lastVisitedAt, locale),
     record.visitCount,
     { value: record.url, textColor: '#247CF2', textDecoration: { underline: true }, wrap: true },
   ]);
@@ -62,10 +65,11 @@ export function createHistorySheetData(records: HistoryRecord[]): SheetData {
 }
 
 // Excel 文件完全在浏览器本地生成并下载，不会把记录上传到服务器。
-export async function exportHistoryExcel(records: HistoryRecord[]): Promise<void> {
-  const fileName = `seenest-history-${localDateKey(new Date())}.xlsx`;
-  await writeExcelFile(createHistorySheetData(records), {
-    sheet: '浏览记录',
+export async function exportHistoryExcel(records: HistoryRecord[], locale: Locale = 'zh-CN'): Promise<void> {
+  const copy = EXCEL_COPY[locale];
+  const fileName = `seenest-archive-${localDateKey(new Date())}.xlsx`;
+  await writeExcelFile(createHistorySheetData(records, locale), {
+    sheet: copy.sheet,
     stickyRowsCount: 1,
     showGridLines: true,
     columns: [
@@ -93,7 +97,7 @@ export async function exportHistoryExcel(records: HistoryRecord[]): Promise<void
       { width: 48 },
     ],
   }, {
-    fontFamily: 'Microsoft YaHei',
+    fontFamily: locale === 'en' ? 'Arial' : 'Microsoft YaHei',
     fontSize: 11,
   }).toFile(fileName);
 }

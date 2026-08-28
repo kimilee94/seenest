@@ -3,9 +3,10 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: {
-    name: 'Seenest',
+    default_locale: 'en',
+    name: '__MSG_extName__',
     short_name: 'Seenest',
-    description: '你的专属浏览时光机，自动留住打开过的精彩内容，数据仅保存在本机。',
+    description: '__MSG_extDescription__',
     permissions: ['storage', 'unlimitedStorage', 'alarms', 'scripting'],
     host_permissions: ['https://x.com/*', 'https://twitter.com/*'],
     optional_host_permissions: ['https://www.bilibili.com/*', 'https://api.bilibili.com/*'],
@@ -16,7 +17,7 @@ export default defineConfig({
       128: 'icons/icon-128.png',
     },
     action: {
-      default_title: 'Seenest',
+      default_title: '__MSG_actionTitle__',
       default_icon: {
         16: 'icons/icon-16.png',
         32: 'icons/icon-32.png',

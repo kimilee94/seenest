@@ -13,6 +13,8 @@ export interface HistoryPageQuery {
   query: string;
   source: string;
   timeFilter: HistoryTimeFilter;
+  /** 精确日期使用设备本地时区的 YYYY-MM-DD；存在时优先于预置时间范围。 */
+  selectedDate?: string | null;
   newestFirst: boolean;
 }
 
@@ -22,7 +24,16 @@ export interface HistoryPageResult {
 }
 
 /** 将时间筛选转换为本地自然日对应的 ISO 范围，结束时间不包含在查询内。 */
-function getVisitTimeRange(filter: HistoryTimeFilter): { start: string; end: string } | null {
+function getVisitTimeRange(filter: HistoryTimeFilter, selectedDate?: string | null): { start: string; end: string } | null {
+  if (selectedDate) {
+    const parts = selectedDate.split('-').map(Number);
+    if (parts.length === 3 && parts.every(Number.isFinite)) {
+      const [year, month, day] = parts as [number, number, number];
+      const start = new Date(year, month - 1, day);
+      const end = new Date(year, month - 1, day + 1);
+      return { start: start.toISOString(), end: end.toISOString() };
+    }
+  }
   if (filter === 'all') return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -39,8 +50,8 @@ function getVisitTimeRange(filter: HistoryTimeFilter): { start: string; end: str
 }
 
 /** 根据来源和时间范围创建可复用的 Dexie 集合。 */
-function createHistoryCollection(source: string, timeFilter: HistoryTimeFilter) {
-  const range = getVisitTimeRange(timeFilter);
+function createHistoryCollection(source: string, timeFilter: HistoryTimeFilter, selectedDate?: string | null) {
+  const range = getVisitTimeRange(timeFilter, selectedDate);
   if (source !== 'all') {
     return db.history.where('[source+lastVisitedAt]').between(
       [source, range?.start ?? Dexie.minKey],
@@ -63,8 +74,8 @@ export async function queryHistoryPage(options: HistoryPageQuery): Promise<Histo
   const normalizedQuery = options.query.trim().toLocaleLowerCase();
 
   if (!normalizedQuery) {
-    const total = await createHistoryCollection(options.source, options.timeFilter).count();
-    const ordered = createHistoryCollection(options.source, options.timeFilter);
+    const total = await createHistoryCollection(options.source, options.timeFilter, options.selectedDate).count();
+    const ordered = createHistoryCollection(options.source, options.timeFilter, options.selectedDate);
     if (options.newestFirst) ordered.reverse();
     return {
       total,
@@ -72,7 +83,7 @@ export async function queryHistoryPage(options: HistoryPageQuery): Promise<Histo
     };
   }
 
-  const matches = (await createHistoryCollection(options.source, options.timeFilter).toArray())
+  const matches = (await createHistoryCollection(options.source, options.timeFilter, options.selectedDate).toArray())
     .filter((record) => `${record.title} ${record.contentText} ${record.authorName} ${record.authorHandle} ${record.authorProfileUrl ?? ''} ${record.url}`
       .toLocaleLowerCase().includes(normalizedQuery))
     .sort((left, right) => Date.parse(left.lastVisitedAt) - Date.parse(right.lastVisitedAt));
@@ -136,9 +147,9 @@ export async function exportHistory(): Promise<ExportPayload> {
 }
 
 // 导入前校验应用标识和备份版本；bulkPut 会按主键合并相同记录。
-export async function importHistory(payload: ExportPayload): Promise<number> {
+export async function importHistory(payload: ExportPayload, invalidMessage = 'Invalid Seenest backup file'): Promise<number> {
   if (payload.app !== 'Seenest' || payload.version !== 1 || !Array.isArray(payload.records)) {
-    throw new Error('这不是有效的 Seenest 备份文件');
+    throw new Error(invalidMessage);
   }
   await db.history.bulkPut(payload.records);
   return payload.records.length;

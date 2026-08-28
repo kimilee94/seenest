@@ -19,7 +19,7 @@ import {
   reconnectAutoBackupFile,
   writeAutoBackupSnapshot,
 } from '../../src/storage/auto-backup';
-import { getSettings, updateSettings, type ThemeMode } from '../../src/storage/settings';
+import { getSettings, subscribeSettings, updateSettings, type SeenestSettings, type ThemeMode } from '../../src/storage/settings';
 import { applyLocale, applyTheme } from '../../src/theme/apply-theme';
 import type { AutoBackupRecord, AutoBackupResult } from '../../src/types/backup';
 import type { ExportPayload, HistoryRecord } from '../../src/types/history';
@@ -31,6 +31,10 @@ type View = 'history' | 'permissions' | 'data';
 type TimeFilter = HistoryTimeFilter;
 
 const PAGE_SIZE = 20;
+const CALENDAR_RECORD_LIMIT = 500;
+const CALENDAR_DATE_LIMIT = 20;
+const CALENDAR_PAGE_SIZE = 5;
+const CALENDAR_AUTOPLAY_MS = 5_000;
 
 /** 将来源标识转换为界面名称；未知来源保留原名称，方便未来动态扩展。 */
 function sourceLabel(source: string, t: Translate): string {
@@ -330,12 +334,20 @@ export function App() {
   const [locale, setLocale] = useState<Locale>('zh-CN');
   const [query, setQuery] = useState('');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState('all');
   const [newestFirst, setNewestFirst] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [notice, setNotice] = useState('');
   const [backupBusy, setBackupBusy] = useState(false);
+  const [calendarPage, setCalendarPage] = useState(0);
+  // 多页轨道的第 0 张是末页克隆，因此初始位置从第 1 张真实页面开始。
+  const [calendarTrackIndex, setCalendarTrackIndex] = useState(1);
+  const [calendarTransitionEnabled, setCalendarTransitionEnabled] = useState(false);
+  const [calendarPaused, setCalendarPaused] = useState(false);
+  const [calendarCycle, setCalendarCycle] = useState(0);
   const importRef = useRef<HTMLInputElement>(null);
+  const calendarPointerStart = useRef<number | null>(null);
   const t: Translate = (key, values) => translate(locale, key, values);
   // 真实扩展从 manifest 读取版本；普通网页预览使用当前演示版本。
   const appVersion = typeof browser !== 'undefined' && browser.runtime?.getManifest
@@ -349,13 +361,14 @@ export function App() {
     query,
     source: sourceFilter,
     timeFilter,
+    selectedDate,
     newestFirst,
-  }), [currentPage, query, sourceFilter, timeFilter, newestFirst], { items: [], total: 0 });
+  }), [currentPage, query, sourceFilter, timeFilter, selectedDate, newestFirst], { items: [], total: 0 });
   const totalCount = useLiveQuery(() => db.history.count(), [], 0);
   const sourceOptions = useLiveQuery(async () => (await db.history.orderBy('source').uniqueKeys())
     .filter((source): source is string => typeof source === 'string'), [], []);
-  // 侧栏摘要最多读取最近 1000 条，避免它抵消主列表分页带来的内存收益。
-  const recentRecords = useLiveQuery(() => db.history.orderBy('lastVisitedAt').reverse().limit(1_000).toArray(), [], []);
+  // 时光日历只汇总最近 500 条，数据量固定，不会随历史记录增长而持续占用更多内存。
+  const recentRecords = useLiveQuery(() => db.history.orderBy('lastVisitedAt').reverse().limit(CALENDAR_RECORD_LIMIT).toArray(), [], []);
   const todayCount = useLiveQuery(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -368,7 +381,7 @@ export function App() {
 
   // 首次渲染时恢复采集、主题和语言偏好，三个界面入口始终使用同一份本地设置。
   useEffect(() => {
-    void getSettings().then((settings) => {
+    const applySettingsState = (settings: SeenestSettings) => {
       setCaptureEnabled(settings.captureEnabled);
       setXEnabled(settings.enabledSources.x);
       setBilibiliEnabled(settings.enabledSources.bilibili);
@@ -376,10 +389,13 @@ export function App() {
       setLocale(settings.locale);
       applyTheme(settings.theme);
       applyLocale(settings.locale);
-    });
+    };
+    void getSettings().then(applySettingsState);
+    // 弹窗修改全局开关后，已经打开的管理页无需刷新即可同步导航栏和来源开关。
+    return subscribeSettings(applySettingsState);
   }, []);
   // 任一筛选或排序发生变化都从第一页重新开始。
-  useEffect(() => { setCurrentPage(1); }, [query, sourceFilter, timeFilter, newestFirst]);
+  useEffect(() => { setCurrentPage(1); }, [query, sourceFilter, timeFilter, selectedDate, newestFirst]);
   // 删除或导入数据导致总页数减少时，自动回到仍然存在的最后一页。
   useEffect(() => { setCurrentPage((page) => Math.min(page, totalPages)); }, [totalPages]);
   // 注册 ⌘/Ctrl + K 快捷键，并在组件卸载时移除监听器。
@@ -406,32 +422,100 @@ export function App() {
     return [...map.entries()];
   }, [historyPage.items]);
 
-  // 汇总最近四个有记录的日期，用于右侧时光日历快速浏览。
+  // 从最近 500 条记录中取最多 20 个真实存在的日期，不生成数量为 0 的空日期。
   const recentDates = useMemo(() => {
     const counts = new Map<string, number>();
     for (const record of recentRecords) {
       const key = localDateKey(record.lastVisitedAt);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
-    return [...counts.entries()].sort(([a], [b]) => b.localeCompare(a)).slice(0, 4);
+    return [...counts.entries()].sort(([a], [b]) => b.localeCompare(a)).slice(0, CALENDAR_DATE_LIMIT);
   }, [recentRecords]);
+  const calendarPageCount = Math.ceil(recentDates.length / CALENDAR_PAGE_SIZE);
+  const calendarPages = useMemo(() => Array.from({ length: calendarPageCount }, (_, page) =>
+    recentDates.slice(page * CALENDAR_PAGE_SIZE, (page + 1) * CALENDAR_PAGE_SIZE)), [calendarPageCount, recentDates]);
+  // 首尾各放一个克隆页，最后一页回到第一页时也能保持连续的单页滑动距离。
+  const calendarTrackPages = useMemo(() => calendarPageCount > 1
+    ? [calendarPages[calendarPageCount - 1]!, ...calendarPages, calendarPages[0]!]
+    : calendarPages, [calendarPageCount, calendarPages]);
+
+  // 页数变化时回到第一张真实页面；下一帧再恢复过渡，避免初始化位置产生动画。
+  useEffect(() => {
+    setCalendarPage(0);
+    setCalendarTransitionEnabled(false);
+    setCalendarTrackIndex(calendarPageCount > 1 ? 1 : 0);
+    const frame = window.requestAnimationFrame(() => setCalendarTransitionEnabled(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, [calendarPageCount]);
+
+  /** 移动整条日历轨道，让旧页离场的同时新页从另一侧进入。 */
+  const showCalendarPage = (page: number, direction: 1 | -1 = 1) => {
+    if (!calendarPageCount) return;
+    const nextPage = (page + calendarPageCount) % calendarPageCount;
+    if (nextPage === calendarPage) {
+      setCalendarCycle((cycle) => cycle + 1);
+      return;
+    }
+
+    setCalendarTransitionEnabled(true);
+    setCalendarPage(nextPage);
+    if (direction > 0 && calendarPage === calendarPageCount - 1 && nextPage === 0) {
+      setCalendarTrackIndex(calendarPageCount + 1);
+    } else if (direction < 0 && calendarPage === 0 && nextPage === calendarPageCount - 1) {
+      setCalendarTrackIndex(0);
+    } else {
+      setCalendarTrackIndex(nextPage + 1);
+    }
+    setCalendarCycle((cycle) => cycle + 1);
+  };
+
+  // 每页停留 5 秒后轮播；鼠标停留时暂停，移开后从完整的 5 秒重新开始。
+  useEffect(() => {
+    if (calendarPaused || calendarPageCount <= 1) return undefined;
+    const timer = window.setTimeout(() => showCalendarPage(calendarPage + 1, 1), CALENDAR_AUTOPLAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [calendarPage, calendarPageCount, calendarPaused]);
+
+  /** 抵达首尾克隆页后无动画复位到对应真实页，为下一轮滑动做好准备。 */
+  const finishCalendarTransition = () => {
+    if (calendarPageCount <= 1) return;
+    const resetIndex = calendarTrackIndex === 0
+      ? calendarPageCount
+      : calendarTrackIndex === calendarPageCount + 1 ? 1 : null;
+    if (resetIndex === null) return;
+    setCalendarTransitionEnabled(false);
+    setCalendarTrackIndex(resetIndex);
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => setCalendarTransitionEnabled(true)));
+  };
+
+  /** 触控和鼠标横向拖动超过 36px 才翻页，避免点击日期时误触。 */
+  const finishCalendarSwipe = (clientX: number) => {
+    if (calendarPointerStart.current === null) return;
+    const distance = clientX - calendarPointerStart.current;
+    calendarPointerStart.current = null;
+    if (Math.abs(distance) < 36 || calendarPageCount <= 1) return;
+    showCalendarPage(calendarPage + (distance < 0 ? 1 : -1), distance < 0 ? 1 : -1);
+  };
 
   /** X 与其他来源独立开关；开启任一来源时同时恢复旧版的全局记录开关。 */
   const toggleXCapture = async () => {
-    const next = !xEnabled;
-    setXEnabled(next);
-    if (next) setCaptureEnabled(true);
     const current = await getSettings();
+    // 全局暂停时，点击视觉上已关闭的来源开关表示恢复 Seenest 并启用该来源。
+    const next = current.captureEnabled ? !current.enabledSources.x : true;
+    const nextCaptureEnabled = next || current.enabledSources.bilibili;
+    setXEnabled(next);
+    setCaptureEnabled(nextCaptureEnabled);
     await updateSettings({
-      captureEnabled: next ? true : current.captureEnabled,
+      captureEnabled: nextCaptureEnabled,
       enabledSources: { ...current.enabledSources, x: next },
     });
   };
 
   /** B 站使用可选站点权限；只有用户主动打开开关时浏览器才显示授权提示。 */
   const toggleBilibiliCapture = async () => {
-    const next = !bilibiliEnabled;
-    if (next && typeof browser !== 'undefined') {
+    const current = await getSettings();
+    const next = current.captureEnabled ? !current.enabledSources.bilibili : true;
+    if (next && !current.enabledSources.bilibili && typeof browser !== 'undefined') {
       const granted = await browser.permissions.request({ origins: BILIBILI_OPTIONAL_ORIGINS });
       if (!granted) {
         setNotice(t('permissions.requestDenied'));
@@ -440,10 +524,10 @@ export function App() {
     }
 
     setBilibiliEnabled(next);
-    if (next) setCaptureEnabled(true);
-    const current = await getSettings();
+    const nextCaptureEnabled = next || current.enabledSources.x;
+    setCaptureEnabled(nextCaptureEnabled);
     await updateSettings({
-      captureEnabled: next ? true : current.captureEnabled,
+      captureEnabled: nextCaptureEnabled,
       enabledSources: { ...current.enabledSources, bilibili: next },
     });
     if (typeof browser !== 'undefined') {
@@ -475,7 +559,7 @@ export function App() {
 
   /** 将当前全部记录整理为 Excel 文件并下载。 */
   const handleExportExcel = async () => {
-    await exportHistoryExcel(await db.history.orderBy('lastVisitedAt').reverse().toArray());
+    await exportHistoryExcel(await db.history.orderBy('lastVisitedAt').reverse().toArray(), locale);
     setNotice(t('backup.excelExported'));
   };
 
@@ -485,9 +569,9 @@ export function App() {
     if (!file) return;
     try {
       const payload = JSON.parse(await file.text()) as ExportPayload;
-      const count = await importHistory(payload);
+      const count = await importHistory(payload, t('backup.invalid'));
       // 导入会改变完整数据集；若已开启自动备份，立即同步一份新的快照。
-      await writeAutoBackupSnapshot();
+      await writeAutoBackupSnapshot(locale);
       setNotice(t('backup.restored', { count }));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t('backup.importFailed'));
@@ -504,8 +588,8 @@ export function App() {
     setBackupBusy(true);
     try {
       const result = autoBackup && autoBackup.permission !== 'granted'
-        ? await reconnectAutoBackupFile(autoBackup)
-        : await connectAutoBackupFile();
+        ? await reconnectAutoBackupFile(autoBackup, locale)
+        : await connectAutoBackupFile(locale);
       setNotice(autoBackupNotice(result, t));
     } catch (error) {
       if (!isPickerCancelled(error)) {
@@ -520,7 +604,7 @@ export function App() {
   const handleAutoBackupNow = async () => {
     setBackupBusy(true);
     try {
-      setNotice(autoBackupNotice(await writeAutoBackupSnapshot(), t));
+      setNotice(autoBackupNotice(await writeAutoBackupSnapshot(locale), t));
     } finally {
       setBackupBusy(false);
     }
@@ -540,7 +624,9 @@ export function App() {
   };
 
   /** 同时清空来源、关键词和时间范围，恢复完整记录列表。 */
-  const resetFilters = () => { setQuery(''); setSourceFilter('all'); setTimeFilter('all'); };
+  const resetFilters = () => { setQuery(''); setSourceFilter('all'); setTimeFilter('all'); setSelectedDate(null); };
+  const xCaptureActive = captureEnabled && xEnabled;
+  const bilibiliCaptureActive = captureEnabled && bilibiliEnabled;
 
   return (
     <main className="page-shell">
@@ -556,7 +642,7 @@ export function App() {
               <div className="quick-filters" role="group" aria-label={t('filter.time')}>
                 <SourceSelect value={sourceFilter} sources={availableSources} onChange={setSourceFilter} t={t} />
                 {([['all', t('filter.all')], ['today', t('filter.today')], ['yesterday', t('filter.yesterday')], ['week', t('filter.week')]] as const).map(([key, label]) => (
-                  <button key={key} className={`time-filter-button ${timeFilter === key ? 'selected' : ''}`} onClick={() => setTimeFilter(key)}>{label}</button>
+                  <button key={key} className={`time-filter-button ${timeFilter === key && !selectedDate ? 'selected' : ''}`} onClick={() => { setSelectedDate(null); setTimeFilter(key); }}>{label}</button>
                 ))}
               </div>
             </div>
@@ -564,7 +650,7 @@ export function App() {
 
           <div className="content-area">
             <section className="history-panel">
-              <div className="panel-head"><div><h2>{t('history.title')}</h2><span>{t('history.summary', { total: totalCount, filtered: historyPage.total })}</span></div><button className="sort-control" onClick={() => setNewestFirst((value) => !value)}><span>{newestFirst ? t('history.newest') : t('history.oldest')}</span><ChevronDownIcon /></button></div>
+              <div className="panel-head"><div><div className="history-title-line"><h2>{t('history.title')}</h2>{selectedDate ? <button className="active-date-filter" type="button" onClick={() => setSelectedDate(null)} title={t('filter.clearDate')}><span>{formatDate(`${selectedDate}T12:00:00`, locale)}</span><b aria-hidden="true">×</b></button> : null}</div><span>{t('history.summary', { total: totalCount, filtered: historyPage.total })}</span></div><button className="sort-control" onClick={() => setNewestFirst((value) => !value)}><span>{newestFirst ? t('history.newest') : t('history.oldest')}</span><ChevronDownIcon /></button></div>
               {groups.length ? <>
                 <div className="history-groups">{groups.map(([date, items]) => (
                   <section className="history-group" key={date}>
@@ -580,19 +666,46 @@ export function App() {
                     <button type="button" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage === totalPages} aria-label={t('history.nextPage')}>›</button>
                   </div>
                 </nav> : null}
-              </> : <EmptyState filtered={Boolean(query || sourceFilter !== 'all' || timeFilter !== 'all')} onReset={resetFilters} onOpenPermissions={() => setView('permissions')} t={t} />}
+              </> : <EmptyState filtered={Boolean(query || sourceFilter !== 'all' || timeFilter !== 'all' || selectedDate)} onReset={resetFilters} onOpenPermissions={() => setView('permissions')} t={t} />}
             </section>
 
             <aside className="side-column">
               <section className="side-card status-card">
                 <div className="side-card-head"><h3>{t('sidebar.status')}</h3><span className={captureEnabled && (xEnabled || bilibiliEnabled) ? 'live-dot' : 'idle-dot'} /></div>
-                <div className="source-row"><span className="x-logo"><SourceIcon source="x" /></span><div><strong>X / Twitter</strong><small>{t('sidebar.authorized')}</small></div><button className={`switch ${xEnabled ? 'on' : ''}`} onClick={() => void toggleXCapture()} aria-label={xEnabled ? t('capture.pause') : t('capture.enable')}><i /></button></div>
-                <div className="source-row bilibili-source-row"><span className="x-logo"><SourceIcon source="bilibili" /></span><div><strong>{t('source.bilibili')}</strong><small>{bilibiliEnabled ? t('sidebar.bilibiliAuthorized') : t('sidebar.bilibiliDisabled')}</small></div><button className={`switch ${bilibiliEnabled ? 'on' : ''}`} onClick={() => void toggleBilibiliCapture()} aria-label={bilibiliEnabled ? t('capture.pause') : t('capture.enable')}><i /></button></div>
+                <div className="source-row"><span className="x-logo"><SourceIcon source="x" /></span><div><strong>X / Twitter</strong><small>{!captureEnabled ? t('sidebar.globallyPaused') : xEnabled ? t('sidebar.authorized') : t('sidebar.xDisabled')}</small></div><button className={`switch ${xCaptureActive ? 'on' : ''}`} onClick={() => void toggleXCapture()} aria-label={xCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div>
+                <div className="source-row bilibili-source-row"><span className="x-logo"><SourceIcon source="bilibili" /></span><div><strong>{t('source.bilibili')}</strong><small>{!captureEnabled ? t('sidebar.globallyPaused') : bilibiliEnabled ? t('sidebar.bilibiliAuthorized') : t('sidebar.bilibiliDisabled')}</small></div><button className={`switch ${bilibiliCaptureActive ? 'on' : ''}`} onClick={() => void toggleBilibiliCapture()} aria-label={bilibiliCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div>
                 <div className="capture-rule"><span>✓</span><p><strong>{t('sidebar.detailOnly')}</strong>{t('sidebar.detailOnlyText')}</p></div>
                 <div className="capture-fields"><span>{t('sidebar.autoSave')}</span><p>{t('sidebar.fields')}</p></div>
               </section>
               <section className="side-card data-card"><div className="side-card-head"><h3>{t('sidebar.localMemory')}</h3><button onClick={() => setView('data')}>{t('action.manage')}</button></div><div className="data-grid"><div><strong>{totalCount}</strong><span>{t('sidebar.saved')}</span></div><div><strong>{todayCount}</strong><span>{t('sidebar.todayAdded')}</span></div></div><div className="local-note"><span>⌂</span><p><strong>{t('sidebar.localOnly')}</strong><small>{t('sidebar.notUploaded')}</small></p></div></section>
-              <section className="side-card dates-card"><div className="side-card-head"><h3>{t('sidebar.calendar')}</h3><button onClick={() => setTimeFilter('all')}>{t('action.all')}</button></div>{recentDates.length ? recentDates.map(([date, count]) => <button className="date-row" key={date} onClick={() => { setQuery(''); setTimeFilter(date === localDateKey(new Date()) ? 'today' : 'week'); }}><span><strong>{relativeDayLabel(`${date}T12:00:00`, locale)}</strong><small>{formatDate(`${date}T12:00:00`, locale)}</small></span><b>{count}</b></button>) : <p className="side-empty">{t('sidebar.noDates')}</p>}</section>
+              <section
+                className={`side-card dates-card ${calendarPaused ? 'paused' : ''}`}
+                onMouseEnter={() => setCalendarPaused(true)}
+                onMouseLeave={() => { setCalendarPaused(false); setCalendarCycle((cycle) => cycle + 1); }}
+              >
+                <div className="side-card-head"><h3>{t('sidebar.calendar')}</h3><button onClick={() => { setSelectedDate(null); setTimeFilter('all'); }}>{t('action.all')}</button></div>
+                {recentDates.length ? <>
+                  <div
+                    className="calendar-viewport"
+                    onPointerDown={(event) => { calendarPointerStart.current = event.clientX; }}
+                    onPointerUp={(event) => finishCalendarSwipe(event.clientX)}
+                    onPointerCancel={() => { calendarPointerStart.current = null; }}
+                  >
+                    <div
+                      className={`calendar-track ${calendarTransitionEnabled ? '' : 'without-transition'}`}
+                      style={{ transform: `translate3d(-${calendarTrackIndex * 100}%, 0, 0)` }}
+                      onTransitionEnd={(event) => { if (event.currentTarget === event.target) finishCalendarTransition(); }}
+                    >
+                      {calendarTrackPages.map((dates, trackPage) => <div className="calendar-page" key={trackPage}>
+                        {dates.map(([date, count]) => <button className={`date-row ${selectedDate === date ? 'active' : ''}`} aria-pressed={selectedDate === date} key={date} onClick={() => { setSelectedDate(date); setTimeFilter('all'); }}><span><strong>{relativeDayLabel(`${date}T12:00:00`, locale)}</strong><small>{formatDate(`${date}T12:00:00`, locale)}</small></span><b>{count}</b></button>)}
+                      </div>)}
+                    </div>
+                  </div>
+                  {calendarPageCount > 0 ? <div className={`calendar-progress ${calendarPageCount === 1 ? 'single' : ''}`} aria-label={t('sidebar.calendarPages')}>
+                    {Array.from({ length: calendarPageCount }, (_, page) => <button type="button" className={page === calendarPage ? 'active' : ''} aria-label={t('sidebar.calendarPage', { page: page + 1 })} aria-current={page === calendarPage ? 'page' : undefined} key={page} onClick={() => showCalendarPage(page, page >= calendarPage ? 1 : -1)}>{page === calendarPage ? <span key={calendarCycle} /> : null}</button>)}
+                  </div> : null}
+                </> : <p className="side-empty">{t('sidebar.noDates')}</p>}
+              </section>
               <section className="side-card disclaimer-card">
                 <div className="disclaimer-heading">
                   <svg aria-hidden="true" viewBox="0 0 20 20" fill="none"><path d="M10 2.5 16 5v4.4c0 3.8-2.3 6.5-6 8.1-3.7-1.6-6-4.3-6-8.1V5z" /><path d="M10 7v3.5M10 13.4h.01" /></svg>
@@ -607,7 +720,7 @@ export function App() {
       ) : null}
 
       {view === 'permissions' ? (
-        <section className="settings-page"><div className="settings-heading"><span>{t('permissions.eyebrow')}</span><h1>{t('permissions.title')}</h1><p>{t('permissions.subtitle')}</p></div><div className="settings-list"><div className="settings-card"><div className="permission-logo"><SourceIcon source="x" /></div><div className="permission-copy"><strong>X / Twitter</strong><span>{t('permissions.publicOnly')}</span><code>https://x.com/*</code></div><button className={`switch large ${xEnabled ? 'on' : ''}`} onClick={() => void toggleXCapture()} aria-label={xEnabled ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="bilibili" /></div><div className="permission-copy"><strong>{t('source.bilibili')}</strong><span>{t('permissions.bilibiliPublicOnly')}</span><code>https://www.bilibili.com/video/*</code></div><button className={`switch large ${bilibiliEnabled ? 'on' : ''}`} onClick={() => void toggleBilibiliCapture()} aria-label={bilibiliEnabled ? t('capture.pause') : t('capture.enable')}><i /></button></div></div><div className="privacy-card"><strong>{t('permissions.minimum')}</strong><p>{t('permissions.minimumText')}</p></div></section>
+        <section className="settings-page"><div className="settings-heading"><span>{t('permissions.eyebrow')}</span><h1>{t('permissions.title')}</h1><p>{t('permissions.subtitle')}</p></div><div className="settings-list"><div className="settings-card"><div className="permission-logo"><SourceIcon source="x" /></div><div className="permission-copy"><strong>X / Twitter</strong><span>{t('permissions.publicOnly')}</span><code>https://x.com/*</code></div><button className={`switch large ${xCaptureActive ? 'on' : ''}`} onClick={() => void toggleXCapture()} aria-label={xCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="bilibili" /></div><div className="permission-copy"><strong>{t('source.bilibili')}</strong><span>{t('permissions.bilibiliPublicOnly')}</span><code>https://www.bilibili.com/video/*</code></div><button className={`switch large ${bilibiliCaptureActive ? 'on' : ''}`} onClick={() => void toggleBilibiliCapture()} aria-label={bilibiliCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div></div><div className="privacy-card"><strong>{t('permissions.minimum')}</strong><p>{t('permissions.minimumText')}</p></div></section>
       ) : null}
 
       {view === 'data' ? (

@@ -58,7 +58,7 @@ export function parseBilibiliViewResponse(
     postId: data.bvid,
     title: data.title.trim(),
     contentText: data.desc?.trim() || data.title.trim(),
-    authorName: data.owner?.name?.trim() || '未知 UP 主',
+    authorName: data.owner?.name?.trim() || 'Bilibili',
     authorHandle: ownerId ? `UID ${ownerId}` : '',
     authorProfileUrl: ownerId ? `https://space.bilibili.com/${ownerId}` : '',
     authorAvatarUrl: secureUrl(data.owner?.face),

@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { Brand } from '../../src/components/Brand';
 import { db } from '../../src/db/database';
 import { translate, type Locale } from '../../src/i18n';
-import { getSettings, updateSettings } from '../../src/storage/settings';
+import { getSettings, subscribeSettings, updateSettings } from '../../src/storage/settings';
 import { applyLocale, applyTheme } from '../../src/theme/apply-theme';
 import type { SeenestMessage } from '../../src/types/messages';
 
-/** 插件弹窗：快速查看记录数量、切换采集状态并进入完整时光机。 */
+/** 插件弹窗：快速查看已收好内容的数量、切换收录状态并进入 Seenest。 */
 export function Popup() {
   const [captureEnabled, setCaptureEnabled] = useState(true);
   const [count, setCount] = useState(0);
@@ -15,20 +15,32 @@ export function Popup() {
 
   // 弹窗打开时并行读取开关设置和本地记录总数，减少等待时间。
   useEffect(() => {
-    void Promise.all([getSettings(), db.history.count()]).then(([settings, historyCount]) => {
+    const applySettings = (settings: Awaited<ReturnType<typeof getSettings>>) => {
       setCaptureEnabled(settings.captureEnabled);
       setLocale(settings.locale);
-      setCount(historyCount);
       applyTheme(settings.theme);
       applyLocale(settings.locale);
+    };
+    void Promise.all([getSettings(), db.history.count()]).then(([settings, historyCount]) => {
+      applySettings(settings);
+      setCount(historyCount);
     });
+    return subscribeSettings(applySettings);
   }, []);
 
   /** 切换自动记录状态并立即写入扩展本地设置。 */
   const toggleCapture = async () => {
     const next = !captureEnabled;
     setCaptureEnabled(next);
-    await updateSettings({ captureEnabled: next });
+    const current = await getSettings();
+    const hasEnabledSource = Object.values(current.enabledSources).some(Boolean);
+    await updateSettings({
+      captureEnabled: next,
+      // 如果用户曾关闭全部来源，再次启动时默认恢复 X，避免出现“运行中但没有可记录网站”。
+      enabledSources: next && !hasEnabledSource
+        ? { ...current.enabledSources, x: true }
+        : current.enabledSources,
+    });
   };
 
   /** 通知后台打开完整管理页面，随后关闭当前小弹窗。 */

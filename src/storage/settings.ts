@@ -13,11 +13,18 @@ export interface SeenestSettings {
 }
 
 const SETTINGS_KEY = 'seenestSettings';
+const PREVIEW_SETTINGS_EVENT = 'seenest:settings-change';
+
+/** 首次使用时读取浏览器界面语言；当前只提供中文和英文两套预置界面。 */
+export function detectPreferredLocale(language = typeof navigator !== 'undefined' ? navigator.language : 'en'): Locale {
+  return /^zh(?:-|$)/i.test(language) ? 'zh-CN' : 'en';
+}
+
 export const DEFAULT_SETTINGS: SeenestSettings = {
   captureEnabled: true,
   enabledSources: { x: true, bilibili: false },
   theme: 'system',
-  locale: 'zh-CN',
+  locale: detectPreferredLocale(),
 };
 
 /** 判断当前代码是否运行在具有扩展存储 API 的真实浏览器扩展环境中。 */
@@ -25,7 +32,7 @@ function hasExtensionStorage(): boolean {
   return typeof browser !== 'undefined' && Boolean(browser.storage?.local);
 }
 
-/** 读取用户设置，并用默认值补齐旧版本中尚不存在的字段。 */
+/** 读取用户设置；已保存语言始终优先，缺失时才使用浏览器语言生成的默认值。 */
 export async function getSettings(): Promise<SeenestSettings> {
   if (!hasExtensionStorage()) {
     const previewSettings = localStorage.getItem(SETTINGS_KEY);
@@ -48,8 +55,29 @@ export async function updateSettings(patch: Partial<SeenestSettings>): Promise<S
   };
   if (!hasExtensionStorage()) {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent<SeenestSettings>(PREVIEW_SETTINGS_EVENT, { detail: next }));
     return next;
   }
   await browser.storage.local.set({ [SETTINGS_KEY]: next });
   return next;
+}
+
+/**
+ * 监听弹窗、管理页及内容脚本对同一份设置的修改。
+ * 返回清理函数，避免 React 页面重复挂载后留下多个监听器。
+ */
+export function subscribeSettings(listener: (settings: SeenestSettings) => void): () => void {
+  if (!hasExtensionStorage()) {
+    const handlePreviewChange = (event: Event) => listener((event as CustomEvent<SeenestSettings>).detail);
+    window.addEventListener(PREVIEW_SETTINGS_EVENT, handlePreviewChange);
+    return () => window.removeEventListener(PREVIEW_SETTINGS_EVENT, handlePreviewChange);
+  }
+
+  const handleExtensionChange = (changes: Record<string, Browser.storage.StorageChange>, area: string) => {
+    if (area !== 'local' || !changes[SETTINGS_KEY]) return;
+    // 统一重新读取并补齐旧版本字段，避免直接使用不完整的 storage change 数据。
+    void getSettings().then(listener);
+  };
+  browser.storage.onChanged.addListener(handleExtensionChange);
+  return () => browser.storage.onChanged.removeListener(handleExtensionChange);
 }

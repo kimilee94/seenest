@@ -1,5 +1,7 @@
 import { db } from '../db/database';
 import { exportHistory } from '../db/history-repository';
+import { translate, type Locale } from '../i18n';
+import { detectPreferredLocale, getSettings } from './settings';
 import type {
   AutoBackupFileHandle,
   AutoBackupPermission,
@@ -74,7 +76,8 @@ export async function getAutoBackupConfig(): Promise<AutoBackupRecord | undefine
  * 写入一次自动备份快照。
  * 后台权限失效时只记录状态，不弹窗、不阻塞帖子采集。
  */
-export async function writeAutoBackupSnapshot(): Promise<AutoBackupResult> {
+export async function writeAutoBackupSnapshot(locale?: Locale): Promise<AutoBackupResult> {
+  const activeLocale = locale ?? (await getSettings()).locale;
   const config = await getAutoBackupConfig();
   if (!config?.enabled) return { status: 'disabled', config: null };
 
@@ -83,7 +86,7 @@ export async function writeAutoBackupSnapshot(): Promise<AutoBackupResult> {
     const next = await saveStatus({
       ...config,
       permission,
-      lastError: '需要重新授权备份文件',
+      lastError: translate(activeLocale, 'backup.permissionRequired'),
     });
     return { status: 'permission-required', config: next };
   }
@@ -101,21 +104,21 @@ export async function writeAutoBackupSnapshot(): Promise<AutoBackupResult> {
     const next = await saveStatus({
       ...config,
       permission,
-      lastError: error instanceof Error ? error.message : '写入备份失败',
+      lastError: error instanceof Error ? error.message : translate(activeLocale, 'backup.failed'),
     });
     return { status: 'failed', config: next };
   }
 }
 
 /** 由用户主动选择一个 JSON 文件，保存授权句柄并立即生成第一份快照。 */
-export async function connectAutoBackupFile(): Promise<AutoBackupResult> {
+export async function connectAutoBackupFile(locale: Locale = detectPreferredLocale()): Promise<AutoBackupResult> {
   const picker = getSaveFilePicker();
-  if (!picker) throw new Error('当前浏览器不支持自动本地备份');
+  if (!picker) throw new Error(translate(locale, 'backup.unsupported'));
 
   const handle = await picker({
     suggestedName: 'seenest-auto-backup.json',
     types: [{
-      description: 'Seenest JSON 备份',
+      description: translate(locale, 'backup.fileDescription'),
       accept: { 'application/json': ['.json'] },
     }],
   });
@@ -128,27 +131,27 @@ export async function connectAutoBackupFile(): Promise<AutoBackupResult> {
     lastBackupAt: null,
     lastError: '',
   });
-  return writeAutoBackupSnapshot();
+  return writeAutoBackupSnapshot(locale);
 }
 
 /** 对已保存的文件句柄重新发起授权，并在成功后立刻刷新备份。 */
-export async function reconnectAutoBackupFile(existingConfig?: AutoBackupRecord): Promise<AutoBackupResult> {
+export async function reconnectAutoBackupFile(existingConfig?: AutoBackupRecord, locale: Locale = detectPreferredLocale()): Promise<AutoBackupResult> {
   // 页面会传入实时查询到的配置，让 requestPermission 尽可能紧跟用户点击执行。
   const config = existingConfig ?? await getAutoBackupConfig();
-  if (!config) return connectAutoBackupFile();
+  if (!config) return connectAutoBackupFile(locale);
 
   const permission = await requestWritePermission(config.handle);
   if (permission !== 'granted') {
     const next = await saveStatus({
       ...config,
       permission,
-      lastError: '未获得备份文件写入权限',
+      lastError: translate(locale, 'backup.writePermissionDenied'),
     });
     return { status: 'permission-required', config: next };
   }
 
   await saveStatus({ ...config, permission: 'granted', lastError: '' });
-  return writeAutoBackupSnapshot();
+  return writeAutoBackupSnapshot(locale);
 }
 
 /** 关闭自动备份并移除文件授权记录；不会删除用户磁盘上的备份文件。 */

@@ -22,8 +22,12 @@ export function applyTheme(theme: ThemeMode): void {
   if (theme === 'system') systemThemeQuery.addEventListener('change', update);
 }
 
-/** 更新文档语言，帮助浏览器和辅助技术使用正确的语言规则。 */
+/** 同步文档语言、标题和页面描述，帮助浏览器、搜索工具及辅助技术正确识别语言。 */
 export function applyLocale(locale: 'zh-CN' | 'en'): void {
   document.documentElement.lang = locale;
-  document.title = locale === 'en' ? 'Seenest · Browsing Time Machine' : 'Seenest · 浏览时光机';
+  document.title = locale === 'en' ? "Seenest · Everything you've seen, in one place" : 'Seenest · 让每一次所见都有归处';
+  const description = locale === 'en'
+    ? "Seenest — a home for everything you've seen."
+    : 'Seenest，让每一次所见都有归处。';
+  document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute('content', description);
 }
