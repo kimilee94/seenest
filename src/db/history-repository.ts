@@ -4,6 +4,8 @@ import type { CapturedHistoryRecord, ExportPayload, HistoryRecord } from '../typ
 
 // 30 分钟内反复打开同一内容视为同一次浏览会话，只更新时间，不增加访问次数。
 const VISIT_SESSION_WINDOW_MS = 30 * 60 * 1000;
+// 内容脚本每 30 秒结算一次；额外 5 秒容差可以覆盖事件调度延迟，但拒绝休眠后异常跳时。
+const MAX_ACTIVE_TIME_INCREMENT_MS = 35_000;
 
 export type HistoryTimeFilter = 'all' | 'today' | 'yesterday' | 'week';
 
@@ -133,6 +135,27 @@ export async function upsertCapturedRecord(captured: CapturedHistoryRecord): Pro
     };
     await db.history.put(record);
     return record;
+  });
+}
+
+/** 原子累加一段经过前台状态判断的活跃停留时间；旧记录无需迁移即可获得这些可选字段。 */
+export async function incrementActiveDuration(recordId: string, durationMs: number, measuredAt: string): Promise<HistoryRecord | null> {
+  const safeDuration = Math.min(MAX_ACTIVE_TIME_INCREMENT_MS, Math.max(0, Math.round(durationMs)));
+  if (!recordId || safeDuration < 250) return null;
+  const measuredDate = new Date(measuredAt);
+  const safeMeasuredAt = Number.isFinite(measuredDate.getTime()) ? measuredDate.toISOString() : new Date().toISOString();
+
+  return db.transaction('rw', db.history, async () => {
+    const existing = await db.history.get(recordId);
+    if (!existing) return null;
+    const updated: HistoryRecord = {
+      ...existing,
+      activeDurationMs: Math.max(0, existing.activeDurationMs ?? 0) + safeDuration,
+      activeMeasuredFrom: existing.activeMeasuredFrom ?? safeMeasuredAt,
+      lastActiveAt: safeMeasuredAt,
+    };
+    await db.history.put(updated);
+    return updated;
   });
 }
 

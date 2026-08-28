@@ -1,4 +1,5 @@
 import { matchBilibiliVideoRoute } from '../src/parsers/bilibili/route';
+import { createActiveTimeTracker } from '../src/activity/active-time-tracker';
 import { getSettings } from '../src/storage/settings';
 import type { SeenestMessage } from '../src/types/messages';
 
@@ -9,6 +10,7 @@ export default defineContentScript({
   registration: 'runtime',
   runAt: 'document_idle',
   main() {
+    const activeTimeTracker = createActiveTimeTracker();
     let currentRouteKey = '';
     let attemptedRouteKey = '';
     let captureTimer: number | undefined;
@@ -36,7 +38,8 @@ export default defineContentScript({
           payload: { bvid: route.bvid, url: location.href, visitedAt: new Date().toISOString() },
         };
         try {
-          await browser.runtime.sendMessage(message);
+          const response = await browser.runtime.sendMessage(message) as { ok?: boolean; recordId?: string } | undefined;
+          if (response?.ok && response.recordId) activeTimeTracker.start(response.recordId);
         } catch {
           // 后台不可用时保持已尝试状态，避免恢复后在同一页面突发重试。
         }
@@ -47,6 +50,7 @@ export default defineContentScript({
     window.setInterval(() => {
       const nextRouteKey = matchBilibiliVideoRoute(location.href)?.bvid ?? '';
       if (nextRouteKey !== currentRouteKey) {
+        activeTimeTracker.stop();
         currentRouteKey = nextRouteKey;
         attemptedRouteKey = '';
         void scheduleCapture();
@@ -55,9 +59,12 @@ export default defineContentScript({
 
     browser.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local' || !changes.seenestSettings) return;
-      void scheduleCapture();
+      const nextSettings = changes.seenestSettings.newValue as { captureEnabled?: boolean; enabledSources?: { bilibili?: boolean } } | undefined;
+      if (nextSettings?.captureEnabled && nextSettings.enabledSources?.bilibili !== false) void scheduleCapture();
+      else activeTimeTracker.stop();
     });
 
+    window.addEventListener('unload', () => activeTimeTracker.destroy(), { once: true });
     currentRouteKey = matchBilibiliVideoRoute(location.href)?.bvid ?? '';
     void scheduleCapture();
   },

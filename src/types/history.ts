@@ -40,6 +40,12 @@ export interface HistoryRecord extends EngagementMetrics {
   firstVisitedAt: string;
   lastVisitedAt: string;
   visitCount: number;
+  /** 页面处于可见、聚焦且用户未空闲状态时累计的近似活跃停留时间。 */
+  activeDurationMs?: number;
+  /** Seenest 首次开始为该内容统计活跃停留时间的时间。 */
+  activeMeasuredFrom?: string;
+  /** 最近一次成功写入活跃停留增量的时间。 */
+  lastActiveAt?: string;
   parserVersion: number;
 }
 

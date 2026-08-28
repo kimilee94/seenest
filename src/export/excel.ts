@@ -5,11 +5,11 @@ import { localDateKey } from '../utils/date';
 
 const EXCEL_COPY = {
   'zh-CN': {
-    headers: ['来源', '类型', '标题', '正文', '发布人', '用户名', '作者主页', '发布时间', '评论数', '转发数', '分享数', '浏览量', '收藏量', '喜欢数', '视频时长（秒）', '媒体类型', '媒体链接', '媒体预览图', '首次收好', '最近看过', '看过次数', '原始链接'],
+    headers: ['来源', '类型', '标题', '正文', '发布人', '用户名', '作者主页', '发布时间', '评论数', '转发数', '分享数', '浏览量', '收藏量', '喜欢数', '视频时长（秒）', '媒体类型', '媒体链接', '媒体预览图', '首次收好', '最近看过', '看过次数', '活跃停留（秒）', '开始统计时间', '最近活跃时间', '原始链接'],
     sourceBilibili: '哔哩哔哩', article: '文章', video: '视频', post: '帖子', image: '图片', sheet: 'Seenest 所见',
   },
   en: {
-    headers: ['Source', 'Type', 'Title', 'Content', 'Author', 'Username', 'Author Profile', 'Published At', 'Replies', 'Reposts', 'Shares', 'Views', 'Bookmarks', 'Likes', 'Video Duration (sec)', 'Media Type', 'Media URL', 'Media Preview', 'First Kept', 'Last Seen', 'Times Seen', 'Original URL'],
+    headers: ['Source', 'Type', 'Title', 'Content', 'Author', 'Username', 'Author Profile', 'Published At', 'Replies', 'Reposts', 'Shares', 'Views', 'Bookmarks', 'Likes', 'Video Duration (sec)', 'Media Type', 'Media URL', 'Media Preview', 'First Kept', 'Last Seen', 'Times Seen', 'Active Time (sec)', 'Measured From', 'Last Active At', 'Original URL'],
     sourceBilibili: 'Bilibili', article: 'Article', video: 'Video', post: 'Post', image: 'Image', sheet: 'Seenest Archive',
   },
 } as const;
@@ -58,6 +58,9 @@ export function createHistorySheetData(records: HistoryRecord[], locale: Locale 
     formatExcelDate(record.firstVisitedAt, locale),
     formatExcelDate(record.lastVisitedAt, locale),
     record.visitCount,
+    Math.round(Math.max(0, record.activeDurationMs ?? 0) / 1_000),
+    formatExcelDate(record.activeMeasuredFrom ?? null, locale),
+    formatExcelDate(record.lastActiveAt ?? null, locale),
     { value: record.url, textColor: '#247CF2', textDecoration: { underline: true }, wrap: true },
   ]);
 
@@ -73,27 +76,12 @@ export async function exportHistoryExcel(records: HistoryRecord[], locale: Local
     stickyRowsCount: 1,
     showGridLines: true,
     columns: [
-      { width: 9 },
-      { width: 12 },
-      { width: 34 },
-      { width: 58 },
-      { width: 18 },
-      { width: 18 },
-      { width: 34 },
-      { width: 22 },
-      { width: 11 },
-      { width: 11 },
-      { width: 11 },
-      { width: 14 },
-      { width: 13 },
-      { width: 11 },
-      { width: 11 },
-      { width: 11 },
-      { width: 48 },
-      { width: 48 },
-      { width: 22 },
-      { width: 22 },
-      { width: 11 },
+      { width: 9 }, { width: 12 }, { width: 34 }, { width: 58 },
+      { width: 18 }, { width: 18 }, { width: 34 }, { width: 22 },
+      { width: 11 }, { width: 11 }, { width: 11 }, { width: 14 },
+      { width: 13 }, { width: 11 }, { width: 11 }, { width: 11 },
+      { width: 48 }, { width: 48 }, { width: 22 }, { width: 22 },
+      { width: 11 }, { width: 16 }, { width: 22 }, { width: 22 },
       { width: 48 },
     ],
   }, {

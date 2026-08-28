@@ -7,7 +7,7 @@ export default defineConfig({
     name: '__MSG_extName__',
     short_name: 'Seenest',
     description: '__MSG_extDescription__',
-    permissions: ['storage', 'unlimitedStorage', 'alarms', 'scripting'],
+    permissions: ['storage', 'unlimitedStorage', 'alarms', 'scripting', 'idle'],
     host_permissions: ['https://x.com/*', 'https://twitter.com/*'],
     optional_host_permissions: ['https://www.bilibili.com/*', 'https://api.bilibili.com/*'],
     icons: {

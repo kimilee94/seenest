@@ -27,6 +27,7 @@ No Seenest account. No Seenest server. No analytics or AI processing. Everything
 - Captures public engagement exposed by each platform, including replies/comments, reposts or shares, views, bookmarks/favorites, and likes
 - Saves the Bilibili creator profile, avatar, video duration, and cover image; expiring playback URLs are intentionally not stored
 - Deduplicates repeated visits and updates the item already kept instead of creating copies
+- Measures approximate active time only while a saved page is visible, focused, and the user is not idle
 - Searches titles, content, authors and links
 - Filters by source and date, groups items by day, and paginates large collections
 - Opens the original page by clicking an item
@@ -123,10 +124,11 @@ Source configuration and `package-lock.json` are part of the project and should 
 | `unlimitedStorage` | Protects a growing local IndexedDB archive from normal extension quotas |
 | `alarms` | Debounces optional automatic JSON snapshots |
 | `scripting` | Registers the Bilibili adapter only after the user enables it |
+| `idle` | Stops active-time measurement when the device is idle or locked |
 | `x.com` / `twitter.com` | Runs the current capture adapter only on supported pages |
 | `bilibili.com` / `api.bilibili.com` | Optional access used for opened video pages and one public metadata request |
 
-Seenest items and backup file handles are stored in IndexedDB. An automatic snapshot is written only after the user chooses and authorizes a local JSON file. Uninstalling the extension may remove its browser-managed database, so export or enable a backup before uninstalling if the collection matters.
+Seenest items, visit counts, and active-time totals are stored in IndexedDB. Active time is inferred locally from page visibility, window focus, recent interaction, and system idle state; Seenest does not store keystrokes, pointer coordinates, or scroll contents. An automatic snapshot is written only after the user chooses and authorizes a local JSON file. Uninstalling the extension may remove its browser-managed database, so export or enable a backup before uninstalling if the collection matters.
 
 ## Technology
 

@@ -1,4 +1,4 @@
-import { upsertCapturedRecord } from '../src/db/history-repository';
+import { incrementActiveDuration, upsertCapturedRecord } from '../src/db/history-repository';
 import { parseBilibiliViewResponse, type BilibiliViewResponse } from '../src/parsers/bilibili/parser';
 import { isValidBvid } from '../src/parsers/bilibili/route';
 import {
@@ -23,6 +23,7 @@ import type { SeenestMessage } from '../src/types/messages';
 
 const AUTO_BACKUP_ALARM_NAME = 'seenest-auto-backup';
 const AUTO_BACKUP_DELAY_MS = 30_000;
+const ACTIVE_TIME_IDLE_THRESHOLD_SECONDS = 90;
 let bilibiliRequestInFlight = false;
 let bilibiliContentScriptSyncQueue: Promise<void> = Promise.resolve();
 
@@ -188,9 +189,9 @@ export default defineBackground(() => {
       if (!isTrustedXSender(sender.url ?? sender.tab?.url)) return { ok: false };
       const settings = await getSettings();
       if (!settings.captureEnabled || !settings.enabledSources.x) return { ok: false };
-      await upsertCapturedRecord(message.payload);
+      const record = await upsertCapturedRecord(message.payload);
       scheduleAutoBackup();
-      return { ok: true };
+      return { ok: true, recordId: record.id };
     }
 
     if (message.type === 'SEENEST_BILIBILI_CAPTURE') {
@@ -200,6 +201,26 @@ export default defineBackground(() => {
       const record = await captureBilibiliVideo(message.payload.bvid, message.payload.visitedAt);
       if (!record) return { ok: false };
       await upsertCapturedRecord(record);
+      scheduleAutoBackup();
+      return { ok: true, recordId: record.id };
+    }
+
+    if (message.type === 'SEENEST_ACTIVITY_STATE') {
+      const trusted = isTrustedXSender(sender.url ?? sender.tab?.url) || isTrustedBilibiliSender(sender.url ?? sender.tab?.url);
+      if (!trusted) return { ok: false, active: false };
+      return { ok: true, active: await browser.idle.queryState(ACTIVE_TIME_IDLE_THRESHOLD_SECONDS) === 'active' };
+    }
+
+    if (message.type === 'SEENEST_ACTIVE_TIME') {
+      const senderUrl = sender.url ?? sender.tab?.url;
+      const source = isTrustedXSender(senderUrl) && message.payload.recordId.startsWith('x:')
+        ? 'x'
+        : isTrustedBilibiliSender(senderUrl) && message.payload.recordId.startsWith('bilibili:') ? 'bilibili' : '';
+      if (!source) return { ok: false };
+      const settings = await getSettings();
+      if (!settings.captureEnabled || !settings.enabledSources[source]) return { ok: false };
+      const record = await incrementActiveDuration(message.payload.recordId, message.payload.durationMs, message.payload.measuredAt);
+      if (!record) return { ok: false };
       scheduleAutoBackup();
       return { ok: true };
     }

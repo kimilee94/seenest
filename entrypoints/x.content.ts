@@ -1,5 +1,6 @@
 import { parseXDetail } from '../src/parsers/x/parser';
 import { matchXDetailRoute } from '../src/parsers/x/route';
+import { createActiveTimeTracker } from '../src/activity/active-time-tracker';
 import { getSettings } from '../src/storage/settings';
 import type { SeenestMessage } from '../src/types/messages';
 
@@ -10,6 +11,7 @@ export default defineContentScript({
   matches: ['https://x.com/*', 'https://twitter.com/*'],
   runAt: 'document_idle',
   main() {
+    const activeTimeTracker = createActiveTimeTracker();
     // X 使用单页应用路由，同一个页面会在不刷新的情况下切换帖子，因此用路由类型和内容 ID 识别当前详情页。
     const getCurrentRouteKey = () => {
       const route = matchXDetailRoute(location.href);
@@ -63,8 +65,9 @@ export default defineContentScript({
       }
 
       const message: SeenestMessage = { type: 'SEENEST_RECORD', payload: record };
-      await browser.runtime.sendMessage(message);
+      const response = await browser.runtime.sendMessage(message) as { ok?: boolean; recordId?: string } | undefined;
       if (version !== sessionVersion) return false;
+      if (response?.ok && response.recordId) activeTimeTracker.start(response.recordId);
       capturedKey = key;
       stopCaptureSession();
       return true;
@@ -101,6 +104,7 @@ export default defineContentScript({
     window.setInterval(() => {
       const nextRouteKey = getCurrentRouteKey();
       if (nextRouteKey !== currentRouteKey) {
+        activeTimeTracker.stop();
         currentRouteKey = nextRouteKey;
         capturedKey = '';
         void startCaptureSession();
@@ -115,10 +119,12 @@ export default defineContentScript({
         capturedKey = '';
         void startCaptureSession();
       } else {
+        activeTimeTracker.stop();
         stopCaptureSession();
       }
     });
 
+    window.addEventListener('unload', () => activeTimeTracker.destroy(), { once: true });
     void startCaptureSession();
   },
 });

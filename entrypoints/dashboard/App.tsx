@@ -199,11 +199,29 @@ function EngagementStats({ record, locale, t }: { record: HistoryRecord; locale:
   return <div className="engagement-meta" aria-label={t('engagement.label')}>{visibleItems.map(([label, value]) => <span key={label}><b>{numberFormatter.format(value)}</b>{label}</span>)}</div>;
 }
 
+/** 活跃停留不足 5 秒时不展示；较长时长只保留对用户有意义的小时、分钟和秒。 */
+function formatActiveDuration(durationMs: number | undefined, locale: Locale): string {
+  const totalSeconds = Math.floor(Math.max(0, durationMs ?? 0) / 1_000);
+  if (totalSeconds < 5) return '';
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  if (locale === 'en') {
+    if (hours) return `${hours}h ${minutes}m`;
+    if (minutes) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+  }
+  if (hours) return `${hours}小时${minutes}分`;
+  if (minutes) return `${minutes}分${seconds}秒`;
+  return `${seconds}秒`;
+}
+
 /** 渲染单条时光记录，包括内容摘要、作者信息、浏览时间和原文入口。 */
 function HistoryRow({ record, locale, t }: { record: HistoryRecord; locale: Locale; t: Translate }) {
   const authorProfileUrl = getAuthorProfileUrl(record);
   const mediaImageUrl = record.mediaPreviewUrl || (record.mediaType !== 'video' ? record.mediaUrl : '');
   const hasMedia = Boolean(mediaImageUrl || (record.mediaType === 'video' && record.mediaUrl));
+  const activeDuration = formatActiveDuration(record.activeDurationMs, locale);
   return (
     <article className={`history-row ${hasMedia ? 'has-media' : ''}`}>
       {authorProfileUrl ? (
@@ -236,6 +254,7 @@ function HistoryRow({ record, locale, t }: { record: HistoryRecord; locale: Loca
           <i />
           <span>{formatPublishedAt(record.publishedAt, locale)}</span>
           {record.visitCount > 1 ? <><i /><span>{t('history.visitCount', { count: record.visitCount })}</span></> : null}
+          {activeDuration ? <><i /><span className="active-time">{t('history.activeTime', { duration: activeDuration })}</span></> : null}
         </div>
         <EngagementStats record={record} locale={locale} t={t} />
       </div>
