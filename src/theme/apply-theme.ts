@@ -25,9 +25,11 @@ export function applyTheme(theme: ThemeMode): void {
 /** 同步文档语言、标题和页面描述，帮助浏览器、搜索工具及辅助技术正确识别语言。 */
 export function applyLocale(locale: 'zh-CN' | 'en'): void {
   document.documentElement.lang = locale;
-  document.title = locale === 'en' ? "Seenest · Everything you've seen, in one place" : 'Seenest · 让每一次所见都有归处';
+  document.title = locale === 'en'
+    ? "Seenest · Find a page you've seen"
+    : 'Seenest · 记得一点内容，就能找回看过的页面';
   const description = locale === 'en'
-    ? "Seenest — a home for everything you've seen."
-    : 'Seenest，让每一次所见都有归处。';
+    ? "Find a page you've seen, even when you don't remember where."
+    : '只要记得一点内容，就能找回看过的页面。';
   document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute('content', description);
 }

@@ -4,17 +4,17 @@
 
 <h1 align="center">Seenest</h1>
 
-<p align="center"><strong>Everything you've seen, in one place.</strong></p>
+<p align="center"><strong>Find a page you've seen, even when you don't remember where.</strong></p>
 
-<p align="center">Quietly keep the things worth finding again in a place of your own.</p>
+<p align="center">Give every visit a place to return to.</p>
 
 <p align="center">
   <strong>English</strong> · <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-Seenest is a local-first browser extension that gives the things you have genuinely seen online a place to return to. Open a supported content page and Seenest quietly keeps it on your device, making it easy to search and open again later.
+Seenest is a local-first browser extension. Open a supported content page and Seenest quietly keeps it on your device. Later, even if you forget where it came from, a detail from the title, text, or author can help you find and reopen the original page.
 
-The name combines **Seen + Nest**. Everything valuable you have seen returns to a nest of your own.
+The name combines **Seen + Nest**. Things worth finding again return to a nest of your own.
 
 No account is required. Your Seenest collection stays on your device unless you choose to export or back it up.
 

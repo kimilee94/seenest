@@ -4,15 +4,15 @@
 
 <h1 align="center">Seenest</h1>
 
-<p align="center"><strong>让每一次所见，都有归处。</strong></p>
+<p align="center"><strong>只要记得一点内容，就能找回看过的页面。</strong></p>
 
-<p align="center">把互联网上值得再次找到的内容，安静地收进属于你的地方。</p>
+<p align="center">让每一次浏览都有归处。</p>
 
 <p align="center">
   <a href="./README.md">English</a> · <strong>简体中文</strong>
 </p>
 
-Seenest 是一款本地优先的浏览器扩展，让你在互联网上认真看过的内容有一个可以回去的地方。打开已支持的内容页面后，Seenest 会安静地收在本机，方便以后搜索和再次打开。
+Seenest 是一款本地优先的浏览器扩展。打开已支持的内容页面后，Seenest 会安静地收在本机。以后即使忘了来自哪里，只要还记得标题、正文或作者的一点线索，就能重新找到并打开原页面。
 
 Seenest 来自 **Seen + Nest**。每一次有价值的所见，都会回到属于自己的 Nest。
 
