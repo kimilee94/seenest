@@ -3,6 +3,7 @@ import { bilibiliAdapter } from '../src/adapters/bilibili';
 import { createCaptureRunner } from '../src/adapters/capture-runner';
 import { getSettings } from '../src/storage/settings';
 import type { SeenestMessage } from '../src/types/messages';
+import { installExtensionContextInvalidationGuard } from '../src/utils/extension-context';
 
 const CAPTURE_DELAY_MS = 2_000;
 
@@ -11,6 +12,7 @@ export default defineContentScript({
   registration: 'runtime',
   runAt: 'document_idle',
   main() {
+    installExtensionContextInvalidationGuard();
     const activeTimeTracker = createActiveTimeTracker();
     const runner = createCaptureRunner({
       adapter: bilibiliAdapter,

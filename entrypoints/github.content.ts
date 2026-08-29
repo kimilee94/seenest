@@ -3,12 +3,14 @@ import { createCaptureRunner } from '../src/adapters/capture-runner';
 import { githubAdapter } from '../src/adapters/github';
 import { getSettings } from '../src/storage/settings';
 import type { SeenestMessage } from '../src/types/messages';
+import { installExtensionContextInvalidationGuard } from '../src/utils/extension-context';
 
 export default defineContentScript({
   // 该入口由后台在用户授予 github.com 可选权限后动态注册，不会随扩展默认注入。
   registration: 'runtime',
   runAt: 'document_idle',
   main() {
+    installExtensionContextInvalidationGuard();
     const activeTimeTracker = createActiveTimeTracker();
     const runner = createCaptureRunner({
       adapter: githubAdapter,

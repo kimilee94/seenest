@@ -3,6 +3,7 @@ import { createCaptureRunner } from '../src/adapters/capture-runner';
 import { xAdapter } from '../src/adapters/x';
 import { getSettings } from '../src/storage/settings';
 import type { SeenestMessage } from '../src/types/messages';
+import { installExtensionContextInvalidationGuard } from '../src/utils/extension-context';
 
 // X 的正文通常先出现，图片、视频封面和互动数据会随后异步挂载。
 const CONTENT_SETTLE_PERIOD_MS = 3_000;
@@ -11,6 +12,7 @@ export default defineContentScript({
   matches: ['https://x.com/*', 'https://twitter.com/*'],
   runAt: 'document_idle',
   main() {
+    installExtensionContextInvalidationGuard();
     const activeTimeTracker = createActiveTimeTracker();
     const runner = createCaptureRunner({
       adapter: xAdapter,

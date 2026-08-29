@@ -24,6 +24,8 @@ export function Popup() {
     void Promise.all([getSettings(), db.history.count()]).then(([settings, historyCount]) => {
       applySettings(settings);
       setCount(historyCount);
+    }).catch(() => {
+      // 弹窗关闭或扩展更新时页面上下文可能先于读取任务销毁，无需继续更新 UI。
     });
     return subscribeSettings(applySettings);
   }, []);

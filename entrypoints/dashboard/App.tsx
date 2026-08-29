@@ -476,7 +476,9 @@ export function App() {
       applyTheme(settings.theme);
       applyLocale(settings.locale);
     };
-    void getSettings().then(applySettingsState);
+    void getSettings().then(applySettingsState).catch(() => {
+      // 扩展更新瞬间旧管理页可能失去上下文；新页面会重新读取完整设置。
+    });
     // 弹窗修改全局开关后，已经打开的管理页无需刷新即可同步导航栏和来源开关。
     return subscribeSettings(applySettingsState);
   }, []);
