@@ -1,4 +1,5 @@
 import type { CapturedVisit } from '../types/history';
+import { isExtensionContextInvalidated } from '../utils/extension-context';
 import type { CapturedRoute, SiteAdapter } from './types';
 
 export interface CaptureRunnerOptions<TResult> {
@@ -46,6 +47,7 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
   let sessionStartedAt = 0;
   let visit: CapturedVisit | null = null;
   let capturedRouteKey = '';
+  let contextInvalidated = false;
 
   const stopCaptureSession = () => {
     generation += 1;
@@ -58,15 +60,40 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
     visit = null;
   };
 
+  /** 扩展重新加载后旧内容脚本无法恢复，立即撤销所有观察和轮询，等待用户刷新页面载入新脚本。 */
+  const invalidateRunner = () => {
+    if (contextInvalidated) return;
+    contextInvalidated = true;
+    stopCaptureSession();
+    if (routePollTimer !== undefined) window.clearInterval(routePollTimer);
+    routePollTimer = undefined;
+    options.onRouteLeave();
+  };
+
+  const handleAsyncError = (error: unknown) => {
+    if (isExtensionContextInvalidated(error)) invalidateRunner();
+    else stopCaptureSession();
+  };
+
+  const readEnabledState = async (): Promise<boolean> => {
+    if (contextInvalidated) return false;
+    try {
+      return await options.isEnabled();
+    } catch (error) {
+      handleAsyncError(error);
+      return false;
+    }
+  };
+
   const scheduleAttempt = (version: number, delay = 350) => {
-    if (version !== generation) return;
+    if (contextInvalidated || version !== generation) return;
     if (captureTimer !== undefined) window.clearTimeout(captureTimer);
     captureTimer = window.setTimeout(() => void attemptCapture(version), delay);
   };
 
   const attemptCapture = async (version: number): Promise<void> => {
     captureTimer = undefined;
-    if (version !== generation || !visit || !await options.isEnabled()) return;
+    if (contextInvalidated || version !== generation || !visit || !await readEnabledState()) return;
     const url = new URL(location.href);
     if (!options.adapter.match(url) || options.adapter.getRouteKey(url) !== currentRouteKey) return;
 
@@ -76,7 +103,13 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
       return;
     }
 
-    const result = await options.adapter.capture({ document, url });
+    let result: TResult | null;
+    try {
+      result = await options.adapter.capture({ document, url });
+    } catch (error) {
+      handleAsyncError(error);
+      return;
+    }
     if (version !== generation) return;
     if (!result) {
       // DOM 型 Adapter 会等待下一次节点变化；API 请求型 Adapter 在本次页面不做循环重试。
@@ -88,7 +121,11 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
     capturedRouteKey = currentRouteKey;
     // 提交前先停止观察，保证异步后台响应期间也不会产生第二次采集。
     stopCaptureSession();
-    await options.onCaptured({ result, visit: capturedVisit });
+    try {
+      await options.onCaptured({ result, visit: capturedVisit });
+    } catch (error) {
+      handleAsyncError(error);
+    }
   };
 
   const startCaptureSession = async (referrer = document.referrer) => {
@@ -96,7 +133,7 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
     const version = generation;
     const url = new URL(location.href);
     const routeKey = options.adapter.getRouteKey(url);
-    if (!routeKey || !options.adapter.match(url) || !await options.isEnabled() || version !== generation) return;
+    if (!routeKey || !options.adapter.match(url) || !await readEnabledState() || version !== generation) return;
 
     currentRouteKey = routeKey;
     sessionStartedAt = Date.now();
@@ -115,6 +152,7 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
   };
 
   const checkRoute = () => {
+    if (contextInvalidated) return;
     const nextUrl = location.href;
     const nextRouteKey = options.adapter.getRouteKey(new URL(nextUrl)) ?? '';
     // 查询参数或 hash 变化不代表用户重新进入内容页，不应产生新的 Visit。
@@ -132,11 +170,13 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
   };
 
   const start = () => {
+    if (contextInvalidated) return;
     if (routePollTimer === undefined) routePollTimer = window.setInterval(checkRoute, 1_000);
     void startCaptureSession();
   };
 
   const restart = () => {
+    if (contextInvalidated) return;
     options.onRouteLeave();
     capturedRouteKey = '';
     currentUrl = location.href;
@@ -152,6 +192,7 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
 
   /** 页面从后台恢复可见时只补做尚未完成的采集；已成功提交的同一路由不会重复计次。 */
   const ensure = () => {
+    if (contextInvalidated) return;
     const routeKey = options.adapter.getRouteKey(new URL(location.href)) ?? '';
     if (!routeKey || routeKey === capturedRouteKey) return;
     if (visit) scheduleAttempt(generation, 0);

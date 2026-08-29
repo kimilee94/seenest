@@ -77,7 +77,9 @@ export function subscribeSettings(listener: (settings: SeenestSettings) => void)
   const handleExtensionChange = (changes: Record<string, Browser.storage.StorageChange>, area: string) => {
     if (area !== 'local' || !changes[SETTINGS_KEY]) return;
     // 统一重新读取并补齐旧版本字段，避免直接使用不完整的 storage change 数据。
-    void getSettings().then(listener);
+    void getSettings().then(listener).catch(() => {
+      // 扩展重新加载后旧页面上下文会失效；设置同步静默结束，等待页面刷新载入新版本。
+    });
   };
   browser.storage.onChanged.addListener(handleExtensionChange);
   return () => browser.storage.onChanged.removeListener(handleExtensionChange);

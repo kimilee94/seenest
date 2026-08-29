@@ -1,4 +1,5 @@
 import type { SeenestMessage } from '../types/messages';
+import { isExtensionContextInvalidated } from '../utils/extension-context';
 
 const ACTIVITY_TIMEOUT_MS = 90_000;
 const CHECKPOINT_INTERVAL_MS = 30_000;
@@ -46,15 +47,20 @@ export function createActiveTimeTracker() {
   let systemStateRequestInFlight = false;
   let tickTimer: number | undefined;
   let systemStateTimer: number | undefined;
+  let contextInvalidated = false;
 
   const refreshSystemState = async () => {
-    if (!memoryId || !visitId || systemStateRequestInFlight) return;
+    if (contextInvalidated || !memoryId || !visitId || systemStateRequestInFlight) return;
     systemStateRequestInFlight = true;
     try {
       const response = await browser.runtime.sendMessage({ type: 'SEENEST_ACTIVITY_STATE' } satisfies SeenestMessage) as { ok?: boolean; active?: boolean } | undefined;
       systemActive = response?.ok === true && response.active === true;
-    } catch {
+    } catch (error) {
       systemActive = false;
+      if (isExtensionContextInvalidated(error)) {
+        contextInvalidated = true;
+        stopTimers();
+      }
     } finally {
       systemStateRequestInFlight = false;
     }
@@ -75,6 +81,7 @@ export function createActiveTimeTracker() {
   };
 
   const flush = async () => {
+    if (contextInvalidated) return;
     accumulateElapsed();
     const targetMemoryId = memoryId;
     const targetVisitId = visitId;
@@ -95,12 +102,17 @@ export function createActiveTimeTracker() {
     };
     try {
       await browser.runtime.sendMessage(message);
-    } catch {
+    } catch (error) {
       // 页面关闭或扩展更新时后台可能暂时不可用；最多损失当前未确认的一个短时间片。
+      if (isExtensionContextInvalidated(error)) {
+        contextInvalidated = true;
+        stopTimers();
+      }
     }
   };
 
   const closeVisit = async () => {
+    if (contextInvalidated) return;
     const targetMemoryId = memoryId;
     const targetVisitId = visitId;
     if (!targetMemoryId || !targetVisitId) return;
@@ -110,8 +122,12 @@ export function createActiveTimeTracker() {
     };
     try {
       await browser.runtime.sendMessage(message);
-    } catch {
+    } catch (error) {
       // 页面销毁期间属于尽力写入；最近一次活跃 checkpoint 仍可作为结束时间回退。
+      if (isExtensionContextInvalidated(error)) {
+        contextInvalidated = true;
+        stopTimers();
+      }
     }
   };
 
@@ -158,7 +174,7 @@ export function createActiveTimeTracker() {
   window.addEventListener('pagehide', handlePageHide);
 
   const start = (nextMemoryId: string, nextVisitId: string) => {
-    if (!nextMemoryId || !nextVisitId || (nextMemoryId === memoryId && nextVisitId === visitId)) return;
+    if (contextInvalidated || !nextMemoryId || !nextVisitId || (nextMemoryId === memoryId && nextVisitId === visitId)) return;
     if (memoryId) void flush();
     stopTimers();
     memoryId = nextMemoryId;
