@@ -1,4 +1,4 @@
-import type { CapturedHistoryRecord } from '../../types/history';
+import type { CapturedMemoryItem } from '../../types/history';
 import { canonicalizeBilibiliVideoUrl, isValidBvid } from './route';
 
 const PARSER_VERSION = 1;
@@ -37,8 +37,7 @@ function secureUrl(value: string | undefined): string {
 /** 将公开详情接口转换为 Seenest 通用记录；缺少标题或合法 BVID 时拒绝保存残缺数据。 */
 export function parseBilibiliViewResponse(
   response: BilibiliViewResponse,
-  visitedAt = new Date(),
-): CapturedHistoryRecord | null {
+): CapturedMemoryItem | null {
   const data = response.code === 0 ? response.data : undefined;
   if (!data || !isValidBvid(data.bvid) || !data.title?.trim()) return null;
 
@@ -71,7 +70,6 @@ export function parseBilibiliViewResponse(
     mediaType: coverUrl ? 'video' : undefined,
     mediaPreviewUrl: coverUrl || undefined,
     publishedAt,
-    visitedAt: visitedAt.toISOString(),
     parserVersion: PARSER_VERSION,
   };
 }

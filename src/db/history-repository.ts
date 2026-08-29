@@ -1,9 +1,14 @@
 import Dexie from 'dexie';
 import { db } from './database';
-import type { CapturedHistoryRecord, ExportPayload, HistoryRecord } from '../types/history';
-
-// 30 分钟内反复打开同一内容视为同一次浏览会话，只更新时间，不增加访问次数。
-const VISIT_SESSION_WINDOW_MS = 30 * 60 * 1000;
+import type {
+  CapturedMemoryItem,
+  CapturedVisit,
+  ExportPayload,
+  HistoryRecord,
+  LegacyExportPayload,
+  MemoryItem,
+  VisitRecord,
+} from '../types/history';
 // 内容脚本每 30 秒结算一次；额外 5 秒容差可以覆盖事件调度延迟，但拒绝休眠后异常跳时。
 const MAX_ACTIVE_TIME_INCREMENT_MS = 35_000;
 
@@ -55,15 +60,15 @@ function getVisitTimeRange(filter: HistoryTimeFilter, selectedDate?: string | nu
 function createHistoryCollection(source: string, timeFilter: HistoryTimeFilter, selectedDate?: string | null) {
   const range = getVisitTimeRange(timeFilter, selectedDate);
   if (source !== 'all') {
-    return db.history.where('[source+lastVisitedAt]').between(
+    return db.history.where('[source+lastSeenAt]').between(
       [source, range?.start ?? Dexie.minKey],
       [source, range?.end ?? Dexie.maxKey],
       true,
       !range,
     );
   }
-  if (range) return db.history.where('lastVisitedAt').between(range.start, range.end, true, false);
-  return db.history.orderBy('lastVisitedAt');
+  if (range) return db.history.where('lastSeenAt').between(range.start, range.end, true, false);
+  return db.history.orderBy('lastSeenAt');
 }
 
 /**
@@ -88,7 +93,7 @@ export async function queryHistoryPage(options: HistoryPageQuery): Promise<Histo
   const matches = (await createHistoryCollection(options.source, options.timeFilter, options.selectedDate).toArray())
     .filter((record) => `${record.title} ${record.contentText} ${record.authorName} ${record.authorHandle} ${record.authorProfileUrl ?? ''} ${record.url}`
       .toLocaleLowerCase().includes(normalizedQuery))
-    .sort((left, right) => Date.parse(left.lastVisitedAt) - Date.parse(right.lastVisitedAt));
+    .sort((left, right) => Date.parse(left.lastSeenAt) - Date.parse(right.lastSeenAt));
   if (options.newestFirst) matches.reverse();
   return {
     total: matches.length,
@@ -96,66 +101,158 @@ export async function queryHistoryPage(options: HistoryPageQuery): Promise<Histo
   };
 }
 
-// 记录 ID 由平台、内容类型和帖子 ID 组成。事务内的 upsert 保证重复访问不会生成重复行。
-export async function upsertCapturedRecord(captured: CapturedHistoryRecord): Promise<HistoryRecord> {
-  return db.transaction('rw', db.history, async () => {
-    const existing = await db.history.get(captured.id);
+/** 合并平台重新解析出的字段，同时保留首次所见时间和之前抓到的有效媒体、互动数据。 */
+export function mergeCapturedMemory(existing: MemoryItem, captured: CapturedMemoryItem, seenAt: string): MemoryItem {
+  return {
+    ...existing,
+    ...captured,
+    replyCount: captured.replyCount ?? existing.replyCount ?? null,
+    repostCount: captured.repostCount ?? existing.repostCount ?? null,
+    shareCount: captured.shareCount ?? existing.shareCount ?? null,
+    viewCount: captured.viewCount ?? existing.viewCount ?? null,
+    bookmarkCount: captured.bookmarkCount ?? existing.bookmarkCount ?? null,
+    likeCount: captured.likeCount ?? existing.likeCount ?? null,
+    mediaType: captured.mediaType ?? existing.mediaType,
+    mediaUrl: captured.mediaUrl ?? existing.mediaUrl,
+    mediaPreviewUrl: captured.mediaPreviewUrl ?? existing.mediaPreviewUrl,
+    mediaAlt: captured.mediaAlt ?? existing.mediaAlt,
+    durationSeconds: captured.durationSeconds ?? existing.durationSeconds ?? null,
+    firstSeenAt: existing.firstSeenAt,
+    lastSeenAt: seenAt,
+    // 每次真实进入或刷新内容页都是一次 Visit；DOM 重试由采集运行器负责去重。
+    visitCount: existing.visitCount + 1,
+  };
+}
 
-    if (!existing) {
-      const record: HistoryRecord = {
-        ...captured,
-        firstVisitedAt: captured.visitedAt,
-        lastVisitedAt: captured.visitedAt,
-        visitCount: 1,
-      };
-      await db.history.add(record);
-      return record;
+export interface RecordedMemoryVisit {
+  memory: MemoryItem;
+  visit: VisitRecord;
+}
+
+function normalizeVisitStartedAt(value: string): string {
+  const parsedStartedAt = new Date(value);
+  return Number.isFinite(parsedStartedAt.getTime()) ? parsedStartedAt.toISOString() : new Date().toISOString();
+}
+
+function normalizeVisit(captured: CapturedVisit, memory: MemoryItem, tabId?: number): VisitRecord {
+  const startedAt = normalizeVisitStartedAt(captured.startedAt);
+  return {
+    id: captured.id,
+    memoryId: memory.id,
+    source: memory.source,
+    startedAt,
+    endedAt: startedAt,
+    activeDurationMs: 0,
+    referrer: captured.referrer || undefined,
+    tabId,
+  };
+}
+
+/**
+ * 在同一事务中写入一份内容记忆和一次访问。Visit ID 同时承担消息幂等键，
+ * 即使同一采集消息意外送达两次，也不会重复增加访问次数。
+ */
+export async function recordCapturedMemoryVisit(
+  captured: CapturedMemoryItem,
+  visitInput: CapturedVisit,
+  tabId?: number,
+): Promise<RecordedMemoryVisit> {
+  return db.transaction('rw', db.history, db.visits, async () => {
+    const duplicateVisit = await db.visits.get(visitInput.id);
+    if (duplicateVisit) {
+      const existingMemory = await db.history.get(duplicateVisit.memoryId);
+      if (existingMemory) return { memory: existingMemory, visit: duplicateVisit };
     }
 
-    const isNewVisit = Date.parse(captured.visitedAt) - Date.parse(existing.lastVisitedAt) > VISIT_SESSION_WINDOW_MS;
-    const record: HistoryRecord = {
-      ...existing,
-      ...captured,
-      // 某项指标未渲染时沿用上一次有效值，避免把已抓到的数据覆盖为空。
-      replyCount: captured.replyCount ?? existing.replyCount ?? null,
-      repostCount: captured.repostCount ?? existing.repostCount ?? null,
-      shareCount: captured.shareCount ?? existing.shareCount ?? null,
-      viewCount: captured.viewCount ?? existing.viewCount ?? null,
-      bookmarkCount: captured.bookmarkCount ?? existing.bookmarkCount ?? null,
-      likeCount: captured.likeCount ?? existing.likeCount ?? null,
-      // X 的媒体节点可能比正文更晚渲染；本次没抓到时保留上一次有效媒体。
-      mediaType: captured.mediaType ?? existing.mediaType,
-      mediaUrl: captured.mediaUrl ?? existing.mediaUrl,
-      mediaPreviewUrl: captured.mediaPreviewUrl ?? existing.mediaPreviewUrl,
-      mediaAlt: captured.mediaAlt ?? existing.mediaAlt,
-      durationSeconds: captured.durationSeconds ?? existing.durationSeconds ?? null,
-      firstVisitedAt: existing.firstVisitedAt,
-      lastVisitedAt: captured.visitedAt,
-      visitCount: existing.visitCount + (isNewVisit ? 1 : 0),
-    };
-    await db.history.put(record);
-    return record;
+    const startedAt = normalizeVisitStartedAt(visitInput.startedAt);
+    const existing = await db.history.get(captured.id);
+    let memory: MemoryItem;
+    if (!existing) {
+      memory = {
+        ...captured,
+        firstSeenAt: startedAt,
+        lastSeenAt: startedAt,
+        visitCount: 1,
+        activeDurationMs: 0,
+      };
+      await db.history.add(memory);
+    } else {
+      memory = mergeCapturedMemory(existing, captured, startedAt);
+      await db.history.put(memory);
+    }
+
+    const visit = normalizeVisit(visitInput, memory, tabId);
+    await db.visits.put(visit);
+    return { memory, visit };
   });
 }
 
-/** 原子累加一段经过前台状态判断的活跃停留时间；旧记录无需迁移即可获得这些可选字段。 */
-export async function incrementActiveDuration(recordId: string, durationMs: number, measuredAt: string): Promise<HistoryRecord | null> {
+/** 平台详情刷新失败时，只要内容已经存在，仍然可以准确留下本次 Visit。 */
+export async function recordVisitForExistingMemory(
+  memoryId: string,
+  visitInput: CapturedVisit,
+  tabId?: number,
+): Promise<RecordedMemoryVisit | null> {
+  return db.transaction('rw', db.history, db.visits, async () => {
+    const duplicateVisit = await db.visits.get(visitInput.id);
+    if (duplicateVisit) {
+      const duplicateMemory = await db.history.get(duplicateVisit.memoryId);
+      return duplicateMemory ? { memory: duplicateMemory, visit: duplicateVisit } : null;
+    }
+    const existing = await db.history.get(memoryId);
+    if (!existing) return null;
+    const visit = normalizeVisit(visitInput, existing, tabId);
+    const memory: MemoryItem = {
+      ...existing,
+      lastSeenAt: visit.startedAt,
+      visitCount: existing.visitCount + 1,
+    };
+    await Promise.all([db.history.put(memory), db.visits.put(visit)]);
+    return { memory, visit };
+  });
+}
+
+/** 同时累加当前 Visit 和 Memory 汇总时长，既保留明细，也让列表查询无需逐条聚合。 */
+export async function incrementActiveDuration(memoryId: string, visitId: string, durationMs: number, measuredAt: string): Promise<HistoryRecord | null> {
   const safeDuration = Math.min(MAX_ACTIVE_TIME_INCREMENT_MS, Math.max(0, Math.round(durationMs)));
-  if (!recordId || safeDuration < 250) return null;
+  if (!memoryId || !visitId || safeDuration < 250) return null;
   const measuredDate = new Date(measuredAt);
   const safeMeasuredAt = Number.isFinite(measuredDate.getTime()) ? measuredDate.toISOString() : new Date().toISOString();
 
-  return db.transaction('rw', db.history, async () => {
-    const existing = await db.history.get(recordId);
-    if (!existing) return null;
+  return db.transaction('rw', db.history, db.visits, async () => {
+    const [existing, visit] = await Promise.all([db.history.get(memoryId), db.visits.get(visitId)]);
+    if (!existing || !visit || visit.memoryId !== memoryId) return null;
     const updated: HistoryRecord = {
       ...existing,
       activeDurationMs: Math.max(0, existing.activeDurationMs ?? 0) + safeDuration,
       activeMeasuredFrom: existing.activeMeasuredFrom ?? safeMeasuredAt,
       lastActiveAt: safeMeasuredAt,
     };
-    await db.history.put(updated);
+    await Promise.all([
+      db.history.put(updated),
+      db.visits.put({
+        ...visit,
+        endedAt: Date.parse(safeMeasuredAt) > Date.parse(visit.endedAt) ? safeMeasuredAt : visit.endedAt,
+        activeDurationMs: Math.max(0, visit.activeDurationMs) + safeDuration,
+        lastActiveAt: safeMeasuredAt,
+      }),
+    ]);
     return updated;
+  });
+}
+
+/** 在离开路由或关闭页面时尽力补齐 Visit 的结束时间；重复消息按较晚时间幂等合并。 */
+export async function endVisit(memoryId: string, visitId: string, endedAt: string): Promise<boolean> {
+  const parsedEndedAt = new Date(endedAt);
+  if (!memoryId || !visitId || !Number.isFinite(parsedEndedAt.getTime())) return false;
+  return db.transaction('rw', db.visits, async () => {
+    const visit = await db.visits.get(visitId);
+    if (!visit || visit.memoryId !== memoryId) return false;
+    const normalizedEnd = parsedEndedAt.toISOString();
+    if (Date.parse(normalizedEnd) > Date.parse(visit.endedAt)) {
+      await db.visits.put({ ...visit, endedAt: normalizedEnd });
+    }
+    return true;
   });
 }
 
@@ -163,22 +260,43 @@ export async function incrementActiveDuration(recordId: string, durationMs: numb
 export async function exportHistory(): Promise<ExportPayload> {
   return {
     app: 'Seenest',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
-    records: await db.history.orderBy('lastVisitedAt').reverse().toArray(),
+    memories: await db.history.orderBy('lastSeenAt').reverse().toArray(),
+    visits: await db.visits.orderBy('startedAt').reverse().toArray(),
   };
 }
 
-// 导入前校验应用标识和备份版本；bulkPut 会按主键合并相同记录。
-export async function importHistory(payload: ExportPayload, invalidMessage = 'Invalid Seenest backup file'): Promise<number> {
-  if (payload.app !== 'Seenest' || payload.version !== 1 || !Array.isArray(payload.records)) {
-    throw new Error(invalidMessage);
-  }
-  await db.history.bulkPut(payload.records);
-  return payload.records.length;
+function normalizeLegacyMemory(record: LegacyExportPayload['records'][number]): MemoryItem | null {
+  const firstSeenAt = record.firstSeenAt ?? record.firstVisitedAt;
+  const lastSeenAt = record.lastSeenAt ?? record.lastVisitedAt;
+  if (!record.id || !firstSeenAt || !lastSeenAt) return null;
+  const { firstVisitedAt: _firstVisitedAt, lastVisitedAt: _lastVisitedAt, ...rest } = record;
+  return { ...rest, firstSeenAt, lastSeenAt } as MemoryItem;
 }
 
-/** 清空当前扩展来源下的全部本地历史记录。 */
+// v1 备份只恢复内容汇总；v2 同时恢复详细 Visit。相同主键始终使用 bulkPut 合并。
+export async function importHistory(payload: ExportPayload | LegacyExportPayload, invalidMessage = 'Invalid Seenest backup file'): Promise<number> {
+  if (payload.app !== 'Seenest') throw new Error(invalidMessage);
+  if (payload.version === 1 && Array.isArray(payload.records)) {
+    const memories = payload.records.map(normalizeLegacyMemory).filter((item): item is MemoryItem => item !== null);
+    if (memories.length !== payload.records.length) throw new Error(invalidMessage);
+    await db.history.bulkPut(memories);
+    return memories.length;
+  }
+  if (payload.version === 2 && Array.isArray(payload.memories) && Array.isArray(payload.visits)) {
+    await db.transaction('rw', db.history, db.visits, async () => {
+      await db.history.bulkPut(payload.memories);
+      await db.visits.bulkPut(payload.visits);
+    });
+    return payload.memories.length;
+  }
+  throw new Error(invalidMessage);
+}
+
+/** 清空全部本地内容记忆和访问明细。 */
 export async function clearHistory(): Promise<void> {
-  await db.history.clear();
+  await db.transaction('rw', db.history, db.visits, async () => {
+    await Promise.all([db.history.clear(), db.visits.clear()]);
+  });
 }

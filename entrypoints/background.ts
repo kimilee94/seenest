@@ -1,4 +1,9 @@
-import { incrementActiveDuration, upsertCapturedRecord } from '../src/db/history-repository';
+import {
+  endVisit,
+  incrementActiveDuration,
+  recordCapturedMemoryVisit,
+  recordVisitForExistingMemory,
+} from '../src/db/history-repository';
 import { parseBilibiliViewResponse, type BilibiliViewResponse } from '../src/parsers/bilibili/parser';
 import { isValidBvid } from '../src/parsers/bilibili/route';
 import {
@@ -54,6 +59,13 @@ function isTrustedBilibiliSender(url?: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** 同时校验发送页面、Memory ID 与 Visit ID 的平台前缀，阻止跨来源修改访问数据。 */
+function trustedActivitySource(url: string | undefined, memoryId: string, visitId: string): 'x' | 'bilibili' | '' {
+  if (isTrustedXSender(url) && memoryId.startsWith('x:') && visitId.startsWith('x:visit:')) return 'x';
+  if (isTrustedBilibiliSender(url) && memoryId.startsWith('bilibili:') && visitId.startsWith('bilibili:visit:')) return 'bilibili';
+  return '';
 }
 
 /** 判断动态脚本错误是否只是浏览器状态已由另一条并发流程完成，便于安全地按幂等操作处理。 */
@@ -122,7 +134,7 @@ function parseRetryAfter(value: string | null, now: number): number {
 }
 
 /** 每次视频访问最多请求一次公开详情接口，并在后台统一执行限流与失败退避。 */
-async function captureBilibiliVideo(bvid: string, visitedAt: string) {
+async function captureBilibiliVideo(bvid: string) {
   if (!isValidBvid(bvid) || bilibiliRequestInFlight) return null;
   bilibiliRequestInFlight = true;
   try {
@@ -154,7 +166,7 @@ async function captureBilibiliVideo(bvid: string, visitedAt: string) {
       return null;
     }
 
-    const record = parseBilibiliViewResponse(payload, new Date(visitedAt));
+    const record = parseBilibiliViewResponse(payload);
     if (record) await writeBilibiliRequestGuard(markBilibiliRequestSucceeded(guard));
     return record;
   } catch {
@@ -189,20 +201,23 @@ export default defineBackground(() => {
       if (!isTrustedXSender(sender.url ?? sender.tab?.url)) return { ok: false };
       const settings = await getSettings();
       if (!settings.captureEnabled || !settings.enabledSources.x) return { ok: false };
-      const record = await upsertCapturedRecord(message.payload);
+      const recorded = await recordCapturedMemoryVisit(message.payload.memory, message.payload.visit, sender.tab?.id);
       scheduleAutoBackup();
-      return { ok: true, recordId: record.id };
+      return { ok: true, memoryId: recorded.memory.id, visitId: recorded.visit.id };
     }
 
     if (message.type === 'SEENEST_BILIBILI_CAPTURE') {
       if (!isTrustedBilibiliSender(sender.url ?? sender.tab?.url)) return { ok: false };
       const settings = await getSettings();
       if (!settings.captureEnabled || !settings.enabledSources.bilibili) return { ok: false };
-      const record = await captureBilibiliVideo(message.payload.bvid, message.payload.visitedAt);
-      if (!record) return { ok: false };
-      await upsertCapturedRecord(record);
+      const memory = await captureBilibiliVideo(message.payload.bvid);
+      // 请求被限流或暂时失败时，如果视频以前已收好，仍保留本次真实访问而不追加网络请求。
+      const recorded = memory
+        ? await recordCapturedMemoryVisit(memory, message.payload.visit, sender.tab?.id)
+        : await recordVisitForExistingMemory(`bilibili:video:${message.payload.bvid}`, message.payload.visit, sender.tab?.id);
+      if (!recorded) return { ok: false };
       scheduleAutoBackup();
-      return { ok: true, recordId: record.id };
+      return { ok: true, memoryId: recorded.memory.id, visitId: recorded.visit.id };
     }
 
     if (message.type === 'SEENEST_ACTIVITY_STATE') {
@@ -213,16 +228,27 @@ export default defineBackground(() => {
 
     if (message.type === 'SEENEST_ACTIVE_TIME') {
       const senderUrl = sender.url ?? sender.tab?.url;
-      const source = isTrustedXSender(senderUrl) && message.payload.recordId.startsWith('x:')
-        ? 'x'
-        : isTrustedBilibiliSender(senderUrl) && message.payload.recordId.startsWith('bilibili:') ? 'bilibili' : '';
+      const source = trustedActivitySource(senderUrl, message.payload.memoryId, message.payload.visitId);
       if (!source) return { ok: false };
       const settings = await getSettings();
       if (!settings.captureEnabled || !settings.enabledSources[source]) return { ok: false };
-      const record = await incrementActiveDuration(message.payload.recordId, message.payload.durationMs, message.payload.measuredAt);
+      const record = await incrementActiveDuration(
+        message.payload.memoryId,
+        message.payload.visitId,
+        message.payload.durationMs,
+        message.payload.measuredAt,
+      );
       if (!record) return { ok: false };
       scheduleAutoBackup();
       return { ok: true };
+    }
+
+    if (message.type === 'SEENEST_VISIT_END') {
+      const senderUrl = sender.url ?? sender.tab?.url;
+      if (!trustedActivitySource(senderUrl, message.payload.memoryId, message.payload.visitId)) return { ok: false };
+      const ok = await endVisit(message.payload.memoryId, message.payload.visitId, message.payload.endedAt);
+      if (ok) scheduleAutoBackup();
+      return { ok };
     }
 
     if (message.type === 'SEENEST_SYNC_SOURCE_REGISTRATION') {

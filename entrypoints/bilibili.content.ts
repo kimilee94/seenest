@@ -1,5 +1,6 @@
-import { matchBilibiliVideoRoute } from '../src/parsers/bilibili/route';
 import { createActiveTimeTracker } from '../src/activity/active-time-tracker';
+import { bilibiliAdapter } from '../src/adapters/bilibili';
+import { createCaptureRunner } from '../src/adapters/capture-runner';
 import { getSettings } from '../src/storage/settings';
 import type { SeenestMessage } from '../src/types/messages';
 
@@ -11,60 +12,46 @@ export default defineContentScript({
   runAt: 'document_idle',
   main() {
     const activeTimeTracker = createActiveTimeTracker();
-    let currentRouteKey = '';
-    let attemptedRouteKey = '';
-    let captureTimer: number | undefined;
-
-    const stopTimer = () => {
-      if (captureTimer !== undefined) window.clearTimeout(captureTimer);
-      captureTimer = undefined;
-    };
-
-    /** 等待短暂稳定期后只发送 BVID；后台负责校验来源并读取公开详情数据。 */
-    const scheduleCapture = async () => {
-      stopTimer();
-      const route = matchBilibiliVideoRoute(location.href);
-      if (!route || attemptedRouteKey === route.bvid) return;
-      const settings = await getSettings();
-      if (!settings.captureEnabled || !settings.enabledSources.bilibili) return;
-
-      captureTimer = window.setTimeout(async () => {
-        const latestRoute = matchBilibiliVideoRoute(location.href);
-        if (!latestRoute || latestRoute.bvid !== route.bvid) return;
-        // 发送前就标记为已尝试；即使请求失败，当前页面也绝不重试。
-        attemptedRouteKey = route.bvid;
+    const runner = createCaptureRunner({
+      adapter: bilibiliAdapter,
+      settleMs: CAPTURE_DELAY_MS,
+      maxWaitMs: CAPTURE_DELAY_MS + 1_000,
+      observeDom: false,
+      isEnabled: async () => {
+        const settings = await getSettings();
+        return settings.captureEnabled && settings.enabledSources.bilibili;
+      },
+      onRouteLeave: () => activeTimeTracker.stop(),
+      onCaptured: async ({ result, visit }) => {
         const message: SeenestMessage = {
           type: 'SEENEST_BILIBILI_CAPTURE',
-          payload: { bvid: route.bvid, url: location.href, visitedAt: new Date().toISOString() },
+          payload: { ...result, visit },
         };
         try {
-          const response = await browser.runtime.sendMessage(message) as { ok?: boolean; recordId?: string } | undefined;
-          if (response?.ok && response.recordId) activeTimeTracker.start(response.recordId);
+          const response = await browser.runtime.sendMessage(message) as {
+            ok?: boolean;
+            memoryId?: string;
+            visitId?: string;
+          } | undefined;
+          if (response?.ok && response.memoryId && response.visitId) {
+            activeTimeTracker.start(response.memoryId, response.visitId);
+          }
         } catch {
-          // 后台不可用时保持已尝试状态，避免恢复后在同一页面突发重试。
+          // 当前页面严格只尝试一次；后台暂时不可用时不循环重试。
         }
-      }, CAPTURE_DELAY_MS);
-    };
-
-    // B 站同样会在不刷新页面的情况下切换视频，每秒只比较 URL，不扫描播放器 DOM。
-    window.setInterval(() => {
-      const nextRouteKey = matchBilibiliVideoRoute(location.href)?.bvid ?? '';
-      if (nextRouteKey !== currentRouteKey) {
-        activeTimeTracker.stop();
-        currentRouteKey = nextRouteKey;
-        attemptedRouteKey = '';
-        void scheduleCapture();
-      }
-    }, 1_000);
+      },
+    });
 
     browser.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local' || !changes.seenestSettings) return;
-      const nextSettings = changes.seenestSettings.newValue as { captureEnabled?: boolean; enabledSources?: { bilibili?: boolean } } | undefined;
-      if (nextSettings?.captureEnabled && nextSettings.enabledSources?.bilibili !== false) void scheduleCapture();
-      else activeTimeTracker.stop();
+      const next = changes.seenestSettings.newValue as {
+        captureEnabled?: boolean;
+        enabledSources?: { bilibili?: boolean };
+      } | undefined;
+      if (next?.captureEnabled && next.enabledSources?.bilibili !== false) runner.restart();
+      else runner.stop();
     });
 
-    currentRouteKey = matchBilibiliVideoRoute(location.href)?.bvid ?? '';
-    void scheduleCapture();
+    runner.start();
   },
 });

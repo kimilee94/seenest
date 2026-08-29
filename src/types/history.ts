@@ -12,7 +12,11 @@ export interface EngagementMetrics {
   likeCount?: number | null;
 }
 
-export interface HistoryRecord extends EngagementMetrics {
+/**
+ * Seenest 保存的一份内容记忆。同一个 canonical 内容始终只保留一条，
+ * 用户每次进入页面的行为由 VisitRecord 单独记录。
+ */
+export interface MemoryItem extends EngagementMetrics {
   id: string;
   source: HistorySource;
   contentType: ContentType;
@@ -37,8 +41,8 @@ export interface HistoryRecord extends EngagementMetrics {
   /** 视频总时长（秒）；非视频内容或平台未提供时为空。 */
   durationSeconds?: number | null;
   publishedAt: string | null;
-  firstVisitedAt: string;
-  lastVisitedAt: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
   visitCount: number;
   /** 页面处于可见、聚焦且用户未空闲状态时累计的近似活跃停留时间。 */
   activeDurationMs?: number;
@@ -47,15 +51,53 @@ export interface HistoryRecord extends EngagementMetrics {
   /** 最近一次成功写入活跃停留增量的时间。 */
   lastActiveAt?: string;
   parserVersion: number;
+  /** 平台专属的扩展字段；核心列表不依赖这里的具体结构。 */
+  metadata?: Record<string, unknown>;
 }
 
-export interface CapturedHistoryRecord extends Omit<HistoryRecord, 'firstVisitedAt' | 'lastVisitedAt' | 'visitCount'> {
-  visitedAt: string;
+/** Adapter 从页面或平台数据源提取出的内容，不包含任何访问行为字段。 */
+export type CapturedMemoryItem = Omit<MemoryItem,
+  'firstSeenAt' | 'lastSeenAt' | 'visitCount' | 'activeDurationMs' | 'activeMeasuredFrom' | 'lastActiveAt'>;
+
+/** 兼容现有 UI 与外部导入代码；新代码应优先使用 MemoryItem。 */
+export type HistoryRecord = MemoryItem;
+export type CapturedHistoryRecord = CapturedMemoryItem;
+
+export interface VisitRecord {
+  id: string;
+  memoryId: string;
+  source: HistorySource;
+  startedAt: string;
+  endedAt: string;
+  activeDurationMs: number;
+  lastActiveAt?: string;
+  referrer?: string;
+  /** 浏览器标签 ID 仅用于本机诊断和未来会话归组，不作为长期稳定标识。 */
+  tabId?: number;
+}
+
+export interface CapturedVisit {
+  id: string;
+  startedAt: string;
+  referrer?: string;
 }
 
 export interface ExportPayload {
   app: 'Seenest';
+  version: 2;
+  exportedAt: string;
+  memories: MemoryItem[];
+  visits: VisitRecord[];
+}
+
+/** v0.1.x 备份格式；导入时会转换成 MemoryItem，但不会伪造历史 Visit。 */
+export interface LegacyExportPayload {
+  app: 'Seenest';
   version: 1;
   exportedAt: string;
-  records: HistoryRecord[];
+  records: Array<Partial<MemoryItem> & {
+    id: string;
+    firstVisitedAt?: string;
+    lastVisitedAt?: string;
+  }>;
 }

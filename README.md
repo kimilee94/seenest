@@ -26,7 +26,7 @@ No Seenest account. No Seenest server. No analytics or AI processing. Everything
 - Saves the original URL, title, content, author, avatar, publication time and last visit time
 - Captures public engagement exposed by each platform, including replies/comments, reposts or shares, views, bookmarks/favorites, and likes
 - Saves the Bilibili creator profile, avatar, video duration, and cover image; expiring playback URLs are intentionally not stored
-- Deduplicates repeated visits and updates the item already kept instead of creating copies
+- Keeps one Memory item per canonical content page and records each real page entry as a separate Visit
 - Measures approximate active time only while a saved page is visible, focused, and the user is not idle
 - Searches titles, content, authors and links
 - Filters by source and date, groups items by day, and paginates large collections
@@ -50,8 +50,8 @@ Seenest does not collect home feeds, direct messages, cookies, passwords or brow
 Open a supported detail page
   -> wait briefly for the page or route to settle
   -> extract public content or request the platform's public metadata
-  -> deduplicate by platform and content ID
-  -> keep or update the item in local IndexedDB
+  -> keep or update one Memory item by platform and content ID
+  -> append one Visit for this real page entry
   -> stop the short-lived DOM observer
 ```
 
@@ -106,7 +106,9 @@ Generated extension files and ZIP packages are written to `.output/` and are int
 ```text
 entrypoints/       Extension background, content, popup and dashboard entrypoints
 src/db/            IndexedDB schema and local content repository
+src/adapters/      Shared capture lifecycle and platform adapters
 src/parsers/       Platform-specific route matching and page parsers
+src/sessions/      Dynamic grouping of Visits into browsing sessions
 src/storage/       Settings, persistence and optional local backup
 src/export/        Data export implementations
 src/components/    Shared interface components
@@ -128,7 +130,7 @@ Source configuration and `package-lock.json` are part of the project and should 
 | `x.com` / `twitter.com` | Runs the current capture adapter only on supported pages |
 | `bilibili.com` / `api.bilibili.com` | Optional access used for opened video pages and one public metadata request |
 
-Seenest items, visit counts, and active-time totals are stored in IndexedDB. Active time is inferred locally from page visibility, window focus, recent interaction, and system idle state; Seenest does not store keystrokes, pointer coordinates, or scroll contents. An automatic snapshot is written only after the user chooses and authorizes a local JSON file. Uninstalling the extension may remove its browser-managed database, so export or enable a backup before uninstalling if the collection matters.
+Seenest stores content as deduplicated Memory items and page entries as separate Visits in IndexedDB. Active time is attached to its Visit and also summarized on the Memory item for fast display. It is inferred locally from page visibility, window focus, recent interaction, and system idle state; Seenest does not store keystrokes, pointer coordinates, or scroll contents. An automatic snapshot is written only after the user chooses and authorizes a local JSON file. Uninstalling the extension may remove its browser-managed database, so export or enable a backup before uninstalling if the collection matters.
 
 ## Technology
 

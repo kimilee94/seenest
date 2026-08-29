@@ -1,4 +1,4 @@
-import type { CapturedHistoryRecord, ContentType, EngagementMetrics, MediaType } from '../../types/history';
+import type { CapturedMemoryItem, ContentType, EngagementMetrics, MediaType } from '../../types/history';
 import { canonicalizeXUrl, matchXDetailRoute } from './route';
 
 const PARSER_VERSION = 8;
@@ -339,7 +339,7 @@ function detectContent(document: Document, root: ParentNode, routeKind: 'status'
 }
 
 // 将详情页 DOM 转换为统一记录结构；核心正文未渲染完成时返回 null，交由短时观察器稍后重试。
-export function parseXDetail(document: Document, inputUrl: string, now = new Date()): CapturedHistoryRecord | null {
+export function parseXDetail(document: Document, inputUrl: string): CapturedMemoryItem | null {
   const route = matchXDetailRoute(inputUrl);
   if (!route) return null;
 
@@ -373,7 +373,6 @@ export function parseXDetail(document: Document, inputUrl: string, now = new Dat
     ...engagement,
     ...media,
     publishedAt,
-    visitedAt: now.toISOString(),
     parserVersion: PARSER_VERSION,
   };
 }

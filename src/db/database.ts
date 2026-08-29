@@ -1,9 +1,11 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { AutoBackupRecord } from '../types/backup';
-import type { HistoryRecord } from '../types/history';
+import type { MemoryItem, VisitRecord } from '../types/history';
 
 class SeenestDatabase extends Dexie {
-  history!: EntityTable<HistoryRecord, 'id'>;
+  /** 物理表名为 history 是为了无损兼容旧版本；表中的每一行现在代表一个 MemoryItem。 */
+  history!: EntityTable<MemoryItem, 'id'>;
+  visits!: EntityTable<VisitRecord, 'id'>;
   autoBackup!: EntityTable<AutoBackupRecord, 'key'>;
 
   constructor() {
@@ -21,6 +23,19 @@ class SeenestDatabase extends Dexie {
     this.version(3).stores({
       history: '&id, source, [source+lastVisitedAt], contentType, postId, authorHandle, publishedAt, firstVisitedAt, lastVisitedAt',
       autoBackup: '&key',
+    });
+    // 第四版正式拆分 Memory 与 Visit。旧内容原地迁移，详细访问仅从升级后开始记录。
+    this.version(4).stores({
+      history: '&id, source, [source+lastSeenAt], contentType, postId, authorHandle, publishedAt, firstSeenAt, lastSeenAt',
+      visits: '&id, memoryId, [memoryId+startedAt], source, startedAt',
+      autoBackup: '&key',
+    }).upgrade(async (transaction) => {
+      await transaction.table('history').toCollection().modify((record: Record<string, unknown>) => {
+        record.firstSeenAt = record.firstSeenAt ?? record.firstVisitedAt;
+        record.lastSeenAt = record.lastSeenAt ?? record.lastVisitedAt;
+        delete record.firstVisitedAt;
+        delete record.lastVisitedAt;
+      });
     });
   }
 }

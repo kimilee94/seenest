@@ -22,7 +22,7 @@ import {
 import { getSettings, subscribeSettings, updateSettings, type SeenestSettings, type ThemeMode } from '../../src/storage/settings';
 import { applyLocale, applyTheme } from '../../src/theme/apply-theme';
 import type { AutoBackupRecord, AutoBackupResult } from '../../src/types/backup';
-import type { ExportPayload, HistoryRecord } from '../../src/types/history';
+import type { ExportPayload, HistoryRecord, LegacyExportPayload } from '../../src/types/history';
 import type { SeenestMessage } from '../../src/types/messages';
 import { dayDistance, formatDate, formatPublishedAt, formatTime, localDateKey, relativeDayLabel } from '../../src/utils/date';
 import { BILIBILI_OPTIONAL_ORIGINS } from '../../src/sources/bilibili';
@@ -266,8 +266,8 @@ function HistoryRow({ record, locale, t }: { record: HistoryRecord; locale: Loca
         </div>
       ) : null}
       <div className="visit-info">
-        <strong>{dayDistance(record.lastVisitedAt) < 2 ? formatTime(record.lastVisitedAt, locale) : formatDate(record.lastVisitedAt, locale)}</strong>
-        <span>{dayDistance(record.lastVisitedAt) < 2 ? t('history.lastViewed') : t('history.viewedDate')}</span>
+        <strong>{dayDistance(record.lastSeenAt) < 2 ? formatTime(record.lastSeenAt, locale) : formatDate(record.lastSeenAt, locale)}</strong>
+        <span>{dayDistance(record.lastSeenAt) < 2 ? t('history.lastViewed') : t('history.viewedDate')}</span>
         <a href={record.url} target="_blank" rel="noreferrer" aria-label={t('action.backOriginal')} title={t('action.backOriginal')}>↗</a>
       </div>
     </article>
@@ -387,11 +387,11 @@ export function App() {
   const sourceOptions = useLiveQuery(async () => (await db.history.orderBy('source').uniqueKeys())
     .filter((source): source is string => typeof source === 'string'), [], []);
   // 时光日历只汇总最近 500 条，数据量固定，不会随历史记录增长而持续占用更多内存。
-  const recentRecords = useLiveQuery(() => db.history.orderBy('lastVisitedAt').reverse().limit(CALENDAR_RECORD_LIMIT).toArray(), [], []);
+  const recentRecords = useLiveQuery(() => db.history.orderBy('lastSeenAt').reverse().limit(CALENDAR_RECORD_LIMIT).toArray(), [], []);
   const todayCount = useLiveQuery(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return db.history.where('firstVisitedAt').aboveOrEqual(today.toISOString()).count();
+    return db.history.where('firstSeenAt').aboveOrEqual(today.toISOString()).count();
   }, [], 0);
   const totalPages = Math.max(1, Math.ceil(historyPage.total / PAGE_SIZE));
   const availableSources = useMemo(() => Array.from(new Set(['x', ...(bilibiliEnabled ? ['bilibili'] : []), ...sourceOptions])), [bilibiliEnabled, sourceOptions]);
@@ -433,7 +433,7 @@ export function App() {
   const groups = useMemo(() => {
     const map = new Map<string, HistoryRecord[]>();
     for (const record of historyPage.items) {
-      const key = localDateKey(record.lastVisitedAt);
+      const key = localDateKey(record.lastSeenAt);
       const group = map.get(key) ?? [];
       group.push(record);
       map.set(key, group);
@@ -445,7 +445,7 @@ export function App() {
   const recentDates = useMemo(() => {
     const counts = new Map<string, number>();
     for (const record of recentRecords) {
-      const key = localDateKey(record.lastVisitedAt);
+      const key = localDateKey(record.lastSeenAt);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return [...counts.entries()].sort(([a], [b]) => b.localeCompare(a)).slice(0, CALENDAR_DATE_LIMIT);
@@ -578,7 +578,7 @@ export function App() {
 
   /** 将当前全部记录整理为 Excel 文件并下载。 */
   const handleExportExcel = async () => {
-    await exportHistoryExcel(await db.history.orderBy('lastVisitedAt').reverse().toArray(), locale);
+    await exportHistoryExcel(await db.history.orderBy('lastSeenAt').reverse().toArray(), locale);
     setNotice(t('backup.excelExported'));
   };
 
@@ -587,7 +587,7 @@ export function App() {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      const payload = JSON.parse(await file.text()) as ExportPayload;
+      const payload = JSON.parse(await file.text()) as ExportPayload | LegacyExportPayload;
       const count = await importHistory(payload, t('backup.invalid'));
       // 导入会改变完整数据集；若已开启自动备份，立即同步一份新的快照。
       await writeAutoBackupSnapshot(locale);
@@ -673,7 +673,7 @@ export function App() {
               {groups.length ? <>
                 <div className="history-groups">{groups.map(([date, items]) => (
                   <section className="history-group" key={date}>
-                    <div className="date-divider"><strong>{relativeDayLabel(items[0]!.lastVisitedAt, locale)}</strong><span>{formatDate(items[0]!.lastVisitedAt, locale)}</span><i /><small>{t('history.pageCount', { count: items.length })}</small></div>
+                    <div className="date-divider"><strong>{relativeDayLabel(items[0]!.lastSeenAt, locale)}</strong><span>{formatDate(items[0]!.lastSeenAt, locale)}</span><i /><small>{t('history.pageCount', { count: items.length })}</small></div>
                     <div className="history-list">{items.map((record) => <HistoryRow key={record.id} record={record} locale={locale} t={t} />)}</div>
                   </section>
                 ))}</div>
