@@ -45,6 +45,7 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
   let generation = 0;
   let sessionStartedAt = 0;
   let visit: CapturedVisit | null = null;
+  let capturedRouteKey = '';
 
   const stopCaptureSession = () => {
     generation += 1;
@@ -84,6 +85,7 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
     }
 
     const capturedVisit = visit;
+    capturedRouteKey = currentRouteKey;
     // 提交前先停止观察，保证异步后台响应期间也不会产生第二次采集。
     stopCaptureSession();
     await options.onCaptured({ result, visit: capturedVisit });
@@ -125,6 +127,7 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
     options.onRouteLeave();
     stopCaptureSession();
     currentRouteKey = nextRouteKey;
+    capturedRouteKey = '';
     if (nextRouteKey) void startCaptureSession(referrer);
   };
 
@@ -135,6 +138,7 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
 
   const restart = () => {
     options.onRouteLeave();
+    capturedRouteKey = '';
     currentUrl = location.href;
     currentRouteKey = options.adapter.getRouteKey(new URL(currentUrl)) ?? '';
     void startCaptureSession();
@@ -143,6 +147,15 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
   const stop = () => {
     options.onRouteLeave();
     stopCaptureSession();
+    capturedRouteKey = '';
+  };
+
+  /** 页面从后台恢复可见时只补做尚未完成的采集；已成功提交的同一路由不会重复计次。 */
+  const ensure = () => {
+    const routeKey = options.adapter.getRouteKey(new URL(location.href)) ?? '';
+    if (!routeKey || routeKey === capturedRouteKey) return;
+    if (visit) scheduleAttempt(generation, 0);
+    else void startCaptureSession();
   };
 
   const destroy = () => {
@@ -151,5 +164,5 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
     routePollTimer = undefined;
   };
 
-  return { start, restart, stop, destroy };
+  return { start, restart, ensure, stop, destroy };
 }

@@ -21,6 +21,12 @@ import {
   markBilibiliRequestSucceeded,
   type BilibiliRequestGuardState,
 } from '../src/sources/bilibili-request-guard';
+import {
+  GITHUB_CONTENT_SCRIPT_FILE,
+  GITHUB_CONTENT_SCRIPT_ID,
+  GITHUB_OPTIONAL_ORIGINS,
+  GITHUB_PAGE_ORIGIN,
+} from '../src/sources/github';
 import { writeAutoBackupSnapshot } from '../src/storage/auto-backup';
 import { ensurePersistentStorage } from '../src/storage/persistence';
 import { DEFAULT_SETTINGS, getSettings } from '../src/storage/settings';
@@ -31,6 +37,7 @@ const AUTO_BACKUP_DELAY_MS = 30_000;
 const ACTIVE_TIME_IDLE_THRESHOLD_SECONDS = 90;
 let bilibiliRequestInFlight = false;
 let bilibiliContentScriptSyncQueue: Promise<void> = Promise.resolve();
+let githubContentScriptSyncQueue: Promise<void> = Promise.resolve();
 
 /**
  * 把自动备份安排在最后一次记录变化的约 30 秒后。
@@ -61,10 +68,27 @@ function isTrustedBilibiliSender(url?: string): boolean {
   }
 }
 
+function isTrustedGithubSender(url?: string): boolean {
+  if (!url) return false;
+  try {
+    return ['github.com', 'www.github.com'].includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** 普通 DOM 采集消息只允许写入与发送页面一致的平台前缀。 */
+function trustedMemorySource(url: string | undefined, memoryId: string): 'x' | 'github' | '' {
+  if (isTrustedXSender(url) && memoryId.startsWith('x:')) return 'x';
+  if (isTrustedGithubSender(url) && memoryId.startsWith('github:')) return 'github';
+  return '';
+}
+
 /** 同时校验发送页面、Memory ID 与 Visit ID 的平台前缀，阻止跨来源修改访问数据。 */
-function trustedActivitySource(url: string | undefined, memoryId: string, visitId: string): 'x' | 'bilibili' | '' {
+function trustedActivitySource(url: string | undefined, memoryId: string, visitId: string): 'x' | 'bilibili' | 'github' | '' {
   if (isTrustedXSender(url) && memoryId.startsWith('x:') && visitId.startsWith('x:visit:')) return 'x';
   if (isTrustedBilibiliSender(url) && memoryId.startsWith('bilibili:') && visitId.startsWith('bilibili:visit:')) return 'bilibili';
+  if (isTrustedGithubSender(url) && memoryId.startsWith('github:') && visitId.startsWith('github:visit:')) return 'github';
   return '';
 }
 
@@ -113,6 +137,46 @@ function syncBilibiliContentScript(): Promise<void> {
     console.warn('[Seenest] Failed to sync Bilibili content script:', error);
   });
   return bilibiliContentScriptSyncQueue;
+}
+
+/** GitHub 属于可选来源，仅在用户授权且开关开启时动态注册内容脚本。 */
+async function reconcileGithubContentScript(): Promise<void> {
+  const settings = await getSettings();
+  const hasPermission = await browser.permissions.contains({ origins: GITHUB_OPTIONAL_ORIGINS });
+  const registered = await browser.scripting.getRegisteredContentScripts({ ids: [GITHUB_CONTENT_SCRIPT_ID] });
+  const shouldRegister = settings.enabledSources.github && hasPermission;
+
+  if (shouldRegister && !registered.length) {
+    try {
+      await browser.scripting.registerContentScripts([{
+        id: GITHUB_CONTENT_SCRIPT_ID,
+        js: [GITHUB_CONTENT_SCRIPT_FILE],
+        matches: [GITHUB_PAGE_ORIGIN],
+        runAt: 'document_idle',
+        persistAcrossSessions: true,
+      }]);
+    } catch (error) {
+      if (!isExpectedContentScriptStateError(error, 'duplicate script id')) throw error;
+    }
+  } else if (!shouldRegister && registered.length) {
+    try {
+      await browser.scripting.unregisterContentScripts({ ids: [GITHUB_CONTENT_SCRIPT_ID] });
+    } catch (error) {
+      if (!isExpectedContentScriptStateError(error, 'non-existent script id')) throw error;
+    }
+  }
+}
+
+function syncGithubContentScript(): Promise<void> {
+  const task = githubContentScriptSyncQueue.then(reconcileGithubContentScript, reconcileGithubContentScript);
+  githubContentScriptSyncQueue = task.catch((error) => {
+    console.warn('[Seenest] Failed to sync GitHub content script:', error);
+  });
+  return githubContentScriptSyncQueue;
+}
+
+async function syncOptionalContentScripts(): Promise<void> {
+  await Promise.all([syncBilibiliContentScript(), syncGithubContentScript()]);
 }
 
 async function readBilibiliRequestGuard(): Promise<BilibiliRequestGuardState> {
@@ -181,13 +245,13 @@ async function captureBilibiliVideo(bvid: string) {
 export default defineBackground(() => {
   // 每次后台启动时确认扩展存储处于持久化状态；失败不会影响正常采集和读取。
   void ensurePersistentStorage();
-  void syncBilibiliContentScript();
+  void syncOptionalContentScripts();
 
   // 首次安装时写入默认设置；升级扩展不会覆盖用户已有的开关状态。
   browser.runtime.onInstalled.addListener(async () => {
     const current = await browser.storage.local.get('seenestSettings');
     if (!current.seenestSettings) await browser.storage.local.set({ seenestSettings: DEFAULT_SETTINGS });
-    await syncBilibiliContentScript();
+    await syncOptionalContentScripts();
   });
 
   // alarm 到期后写入完整 JSON 快照；未开启或授权失效时会静默跳过，不影响页面采集。
@@ -198,9 +262,10 @@ export default defineBackground(() => {
   // 后台是内容采集与本地存储之间的唯一入口，负责校验来源、读取开关并执行去重写入。
   browser.runtime.onMessage.addListener(async (message: SeenestMessage, sender) => {
     if (message.type === 'SEENEST_RECORD') {
-      if (!isTrustedXSender(sender.url ?? sender.tab?.url)) return { ok: false };
+      const source = trustedMemorySource(sender.url ?? sender.tab?.url, message.payload.memory.id);
+      if (!source || message.payload.memory.source !== source) return { ok: false };
       const settings = await getSettings();
-      if (!settings.captureEnabled || !settings.enabledSources.x) return { ok: false };
+      if (!settings.captureEnabled || !settings.enabledSources[source]) return { ok: false };
       const recorded = await recordCapturedMemoryVisit(message.payload.memory, message.payload.visit, sender.tab?.id);
       scheduleAutoBackup();
       return { ok: true, memoryId: recorded.memory.id, visitId: recorded.visit.id };
@@ -221,7 +286,9 @@ export default defineBackground(() => {
     }
 
     if (message.type === 'SEENEST_ACTIVITY_STATE') {
-      const trusted = isTrustedXSender(sender.url ?? sender.tab?.url) || isTrustedBilibiliSender(sender.url ?? sender.tab?.url);
+      const trusted = isTrustedXSender(sender.url ?? sender.tab?.url)
+        || isTrustedBilibiliSender(sender.url ?? sender.tab?.url)
+        || isTrustedGithubSender(sender.url ?? sender.tab?.url);
       if (!trusted) return { ok: false, active: false };
       return { ok: true, active: await browser.idle.queryState(ACTIVE_TIME_IDLE_THRESHOLD_SECONDS) === 'active' };
     }
@@ -252,7 +319,7 @@ export default defineBackground(() => {
     }
 
     if (message.type === 'SEENEST_SYNC_SOURCE_REGISTRATION') {
-      await syncBilibiliContentScript();
+      await syncOptionalContentScripts();
       return { ok: true };
     }
 

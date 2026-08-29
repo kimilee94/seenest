@@ -1,4 +1,4 @@
-export type ContentType = 'post' | 'article' | 'video';
+export type ContentType = 'post' | 'article' | 'video' | 'repository' | 'issue';
 export type HistorySource = 'x' | (string & {});
 export type MediaType = 'image' | 'video';
 

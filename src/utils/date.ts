@@ -44,3 +44,10 @@ export function formatPublishedAt(input: string | null, locale: Locale = 'zh-CN'
   const dateTime = `${formatDate(input, locale)} ${formatTime(input, locale)}`;
   return locale === 'en' ? `Published ${dateTime}` : `发布于 ${dateTime}`;
 }
+
+/** GitHub 仓库没有帖子发布时间，使用仓库创建时间并采用准确的“创建于”语义。 */
+export function formatCreatedAt(input: string | null, locale: Locale = 'zh-CN'): string {
+  if (!input) return locale === 'en' ? 'Created time unknown' : '创建时间未知';
+  const dateTime = `${formatDate(input, locale)} ${formatTime(input, locale)}`;
+  return locale === 'en' ? `Created ${dateTime}` : `创建于 ${dateTime}`;
+}

@@ -16,7 +16,7 @@ Seenest is a local-first browser extension that gives everything you have seen a
 
 The name combines **Seen + Nest**: everything you have seen returns to one personal nest—a searchable home for useful content that would otherwise disappear into the feed.
 
-The product is designed for multiple content platforms. The current version supports **X / Twitter posts and articles** plus **Bilibili video detail pages**. Bilibili access is requested only when you explicitly enable its adapter.
+The product is designed for multiple content platforms. The current version supports **X / Twitter posts and articles**, **Bilibili video detail pages**, and **public GitHub repositories and Issues**. Bilibili and GitHub access is requested only when you explicitly enable each adapter.
 
 No Seenest account. No Seenest server. No analytics or AI processing. Everything Seenest keeps stays on your device unless you explicitly export or back it up.
 
@@ -26,6 +26,8 @@ No Seenest account. No Seenest server. No analytics or AI processing. Everything
 - Saves the original URL, title, content, author, avatar, publication time and last visit time
 - Captures public engagement exposed by each platform, including replies/comments, reposts or shares, views, bookmarks/favorites, and likes
 - Saves the Bilibili creator profile, avatar, video duration, and cover image; expiring playback URLs are intentionally not stored
+- Keeps public GitHub repositories with description, topics, language, stars, forks, and up to 1,000 characters of README highlights
+- Keeps public GitHub Issues with the opening body only, capped at 500 characters; comments and private repositories are excluded
 - Keeps one Memory item per canonical content page and records each real page entry as a separate Visit
 - Measures approximate active time only while a saved page is visible, focused, and the user is not idle
 - Searches titles, content, authors and links
@@ -40,6 +42,7 @@ No Seenest account. No Seenest server. No analytics or AI processing. Everything
 | --- | --- | --- |
 | X / Twitter | Supported | Post and long-form article detail pages |
 | Bilibili | Supported, opt-in | Video detail pages |
+| GitHub | Supported, opt-in | Public repository home pages and individual Issues |
 | Other platforms | Planned | Added through separate adapters and explicit site access |
 
 Seenest does not collect home feeds, direct messages, cookies, passwords or browsing activity from unrelated sites.
@@ -55,7 +58,7 @@ Open a supported detail page
   -> stop the short-lived DOM observer
 ```
 
-X is a single-page application, so Seenest performs a lightweight route check. A DOM observer runs only during a short capture session and stops after a successful capture, timeout or route change. For Bilibili, Seenest reads the BVID from the opened video URL and makes one cookie-free request to Bilibili's public video-details endpoint; it does not scan the home feed or keep a long-running DOM observer.
+X is a single-page application, so Seenest performs a lightweight route check. A DOM observer runs only during a short capture session and stops after a successful capture, timeout or route change. For Bilibili, Seenest reads the BVID from the opened video URL and makes one cookie-free request to Bilibili's public video-details endpoint. GitHub is parsed from the public page already open in the focused tab after a short settling delay; Seenest does not call the GitHub API or scan private repositories.
 
 ## Install from source
 
@@ -72,7 +75,7 @@ Requirements: a current Node.js release, npm, and Chrome or another Chromium-bas
 3. Open `chrome://extensions`.
 4. Enable **Developer mode**.
 5. Click **Load unpacked** and select `.output/chrome-mv3` from this project.
-6. Open a supported X detail page. To capture Bilibili videos, open **Site Access** in Seenest, enable Bilibili, approve the optional site permission, and then visit a video detail page.
+6. Open a supported X detail page. To capture Bilibili or GitHub, open **Site Access**, enable the source, approve its optional permission, and then visit a supported detail page.
 
 To update a locally installed copy, pull the latest code, run `npm ci` and `npm run build` again, then click **Reload** on the existing Seenest card in `chrome://extensions`. Chrome keeps the same extension installation when the same unpacked folder is reloaded.
 
@@ -125,10 +128,11 @@ Source configuration and `package-lock.json` are part of the project and should 
 | `storage` | Stores settings in `chrome.storage.local` |
 | `unlimitedStorage` | Protects a growing local IndexedDB archive from normal extension quotas |
 | `alarms` | Debounces optional automatic JSON snapshots |
-| `scripting` | Registers the Bilibili adapter only after the user enables it |
+| `scripting` | Registers Bilibili and GitHub adapters only after the user enables them |
 | `idle` | Stops active-time measurement when the device is idle or locked |
 | `x.com` / `twitter.com` | Runs the current capture adapter only on supported pages |
 | `bilibili.com` / `api.bilibili.com` | Optional access used for opened video pages and one public metadata request |
+| `github.com` | Optional access used only for opened public repository and Issue pages; no GitHub API requests |
 
 Seenest stores content as deduplicated Memory items and page entries as separate Visits in IndexedDB. Active time is attached to its Visit and also summarized on the Memory item for fast display. It is inferred locally from page visibility, window focus, recent interaction, and system idle state; Seenest does not store keystrokes, pointer coordinates, or scroll contents. An automatic snapshot is written only after the user chooses and authorizes a local JSON file. Uninstalling the extension may remove its browser-managed database, so export or enable a backup before uninstalling if the collection matters.
 

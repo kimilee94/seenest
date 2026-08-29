@@ -24,11 +24,19 @@ import { applyLocale, applyTheme } from '../../src/theme/apply-theme';
 import type { AutoBackupRecord, AutoBackupResult } from '../../src/types/backup';
 import type { ExportPayload, HistoryRecord, LegacyExportPayload } from '../../src/types/history';
 import type { SeenestMessage } from '../../src/types/messages';
-import { dayDistance, formatDate, formatPublishedAt, formatTime, localDateKey, relativeDayLabel } from '../../src/utils/date';
+import { dayDistance, formatCreatedAt, formatDate, formatPublishedAt, formatTime, localDateKey, relativeDayLabel } from '../../src/utils/date';
 import { BILIBILI_OPTIONAL_ORIGINS } from '../../src/sources/bilibili';
+import { GITHUB_OPTIONAL_ORIGINS } from '../../src/sources/github';
 
 type View = 'history' | 'permissions' | 'data';
 type TimeFilter = HistoryTimeFilter;
+type MessageTone = 'success' | 'warning' | 'error';
+
+interface MessageNotice {
+  id: number;
+  text: string;
+  tone: MessageTone;
+}
 
 const PAGE_SIZE = 20;
 const CALENDAR_RECORD_LIMIT = 500;
@@ -41,6 +49,7 @@ function sourceLabel(source: string, t: Translate): string {
   if (source === 'all') return t('source.all');
   if (source === 'x') return 'X / Twitter';
   if (source === 'bilibili') return t('source.bilibili');
+  if (source === 'github') return t('source.github');
   return source;
 }
 
@@ -48,6 +57,7 @@ function sourceLabel(source: string, t: Translate): string {
 function shortSourceLabel(source: string, t: Translate): string {
   if (source === 'x') return t('source.xShort');
   if (source === 'bilibili') return t('source.bilibiliShort');
+  if (source === 'github') return t('source.githubShort');
   return source;
 }
 
@@ -56,11 +66,45 @@ function ChevronDownIcon() {
   return <svg className="chevron-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none"><path d="m4.5 6 3.5 3.5L11.5 6" /></svg>;
 }
 
+/** 类似常见 UI 组件库的 Message：自动消失、可手动关闭，并通过新 id 重置显示周期。 */
+function SeenestMessage({ message, closeLabel, onClose }: { message: MessageNotice; closeLabel: string; onClose: () => void }) {
+  const [leaving, setLeaving] = useState(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const leaveTimer = window.setTimeout(() => setLeaving(true), 3_000);
+    const closeTimer = window.setTimeout(() => onCloseRef.current(), 3_220);
+    return () => {
+      window.clearTimeout(leaveTimer);
+      window.clearTimeout(closeTimer);
+    };
+  }, [message.id]);
+
+  const close = () => {
+    setLeaving(true);
+    window.setTimeout(() => onCloseRef.current(), 180);
+  };
+
+  return (
+    <div className={`seenest-message ${message.tone} ${leaving ? 'leaving' : ''}`} role={message.tone === 'error' ? 'alert' : 'status'} aria-live="polite">
+      <span className="message-icon" aria-hidden="true">
+        {message.tone === 'success'
+          ? <svg viewBox="0 0 20 20"><path d="m5.2 10.2 3 3.1 6.7-7" /></svg>
+          : <svg viewBox="0 0 20 20"><path d="M10 5.2v5.6M10 14.2h.01" /></svg>}
+      </span>
+      <span className="message-text">{message.text}</span>
+      <button className="message-close" type="button" onClick={close} aria-label={closeLabel}>×</button>
+    </div>
+  );
+}
+
 /** 展示来源的本地 SVG 标志；未知平台保留首字母，方便后续扩展适配器。 */
 function SourceIcon({ source }: { source: string }) {
   if (source === 'all') return <img className="source-symbol" src="/icons/source-all.svg" alt="" aria-hidden="true" />;
   if (source === 'x') return <img className="source-symbol" src="/icons/source-x.svg" alt="" aria-hidden="true" />;
   if (source === 'bilibili') return <img className="source-symbol" src="/icons/source-bilibili.svg" alt="" aria-hidden="true" />;
+  if (source === 'github') return <img className="source-symbol" src="/icons/source-github.svg" alt="" aria-hidden="true" />;
   return <span className="source-letter" aria-hidden="true">{source.slice(0, 1).toUpperCase()}</span>;
 }
 
@@ -182,7 +226,10 @@ function SettingsIcon() {
 
 /** 以紧凑格式展示已抓到的互动数据，未渲染的指标不会伪装成 0。 */
 function EngagementStats({ record, locale, t }: { record: HistoryRecord; locale: Locale; t: Translate }) {
-  const items = [
+  const items = record.source === 'github' ? [
+    [t('engagement.fork'), record.repostCount],
+    [t('engagement.star'), record.likeCount],
+  ] as const : [
     [t('engagement.reply'), record.replyCount],
     [t('engagement.repost'), record.repostCount],
     [t('engagement.share'), record.shareCount],
@@ -197,6 +244,14 @@ function EngagementStats({ record, locale, t }: { record: HistoryRecord; locale:
 
   const numberFormatter = new Intl.NumberFormat(locale === 'en' ? 'en-US' : 'zh-CN', { notation: 'compact', maximumFractionDigits: 1 });
   return <div className="engagement-meta" aria-label={t('engagement.label')}>{visibleItems.map(([label, value]) => <span key={label}><b>{numberFormatter.format(value)}</b>{label}</span>)}</div>;
+}
+
+function contentTypeLabel(record: HistoryRecord, t: Translate): string {
+  if (record.contentType === 'article') return t('content.article');
+  if (record.contentType === 'video') return t('content.video');
+  if (record.contentType === 'repository') return t('content.repository');
+  if (record.contentType === 'issue') return t('content.issue');
+  return t('content.post');
 }
 
 /** 活跃停留不足 5 秒时不展示；较长时长只保留对用户有意义的小时、分钟和秒。 */
@@ -237,7 +292,7 @@ function HistoryRow({ record, locale, t }: { record: HistoryRecord; locale: Loca
               <span><SourceIcon source={record.source} /></span>
               {shortSourceLabel(record.source, t)}
             </span>
-            <span className="type-badge">{record.contentType === 'article' ? t('content.article') : record.contentType === 'video' ? t('content.video') : t('content.post')}</span>
+            <span className="type-badge">{contentTypeLabel(record, t)}</span>
           </span>
         </div>
         <p>{record.contentText}</p>
@@ -252,7 +307,7 @@ function HistoryRow({ record, locale, t }: { record: HistoryRecord; locale: Loca
             {record.authorHandle && record.source !== 'bilibili' ? <span>{record.authorHandle}</span> : null}
           </>}
           <i />
-          <span>{formatPublishedAt(record.publishedAt, locale)}</span>
+          <span>{record.contentType === 'repository' ? formatCreatedAt(record.publishedAt, locale) : formatPublishedAt(record.publishedAt, locale)}</span>
           {record.visitCount > 1 ? <><i /><span>{t('history.visitCount', { count: record.visitCount })}</span></> : null}
           {activeDuration ? <><i /><span className="active-time">{t('history.activeTime', { duration: activeDuration })}</span></> : null}
         </div>
@@ -349,6 +404,7 @@ export function App() {
   const [captureEnabled, setCaptureEnabled] = useState(true);
   const [xEnabled, setXEnabled] = useState(true);
   const [bilibiliEnabled, setBilibiliEnabled] = useState(false);
+  const [githubEnabled, setGithubEnabled] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>('system');
   const [locale, setLocale] = useState<Locale>('zh-CN');
   const [query, setQuery] = useState('');
@@ -357,7 +413,7 @@ export function App() {
   const [sourceFilter, setSourceFilter] = useState('all');
   const [newestFirst, setNewestFirst] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<MessageNotice | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
   const [calendarPage, setCalendarPage] = useState(0);
   // 多页轨道的第 0 张是末页克隆，因此初始位置从第 1 张真实页面开始。
@@ -366,8 +422,13 @@ export function App() {
   const [calendarPaused, setCalendarPaused] = useState(false);
   const [calendarCycle, setCalendarCycle] = useState(0);
   const importRef = useRef<HTMLInputElement>(null);
+  const noticeSequence = useRef(0);
   const calendarPointerStart = useRef<number | null>(null);
   const t: Translate = (key, values) => translate(locale, key, values);
+  const showNotice = (text: string, tone: MessageTone = 'success') => {
+    noticeSequence.current += 1;
+    setNotice({ id: noticeSequence.current, text, tone });
+  };
   // 真实扩展从 manifest 读取版本；普通网页预览使用当前演示版本。
   const appVersion = typeof browser !== 'undefined' && browser.runtime?.getManifest
     ? browser.runtime.getManifest().version
@@ -394,7 +455,12 @@ export function App() {
     return db.history.where('firstSeenAt').aboveOrEqual(today.toISOString()).count();
   }, [], 0);
   const totalPages = Math.max(1, Math.ceil(historyPage.total / PAGE_SIZE));
-  const availableSources = useMemo(() => Array.from(new Set(['x', ...(bilibiliEnabled ? ['bilibili'] : []), ...sourceOptions])), [bilibiliEnabled, sourceOptions]);
+  const availableSources = useMemo(() => Array.from(new Set([
+    'x',
+    ...(bilibiliEnabled ? ['bilibili'] : []),
+    ...(githubEnabled ? ['github'] : []),
+    ...sourceOptions,
+  ])), [bilibiliEnabled, githubEnabled, sourceOptions]);
   const pageStart = historyPage.total ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
   const pageEnd = Math.min(currentPage * PAGE_SIZE, historyPage.total);
 
@@ -404,6 +470,7 @@ export function App() {
       setCaptureEnabled(settings.captureEnabled);
       setXEnabled(settings.enabledSources.x);
       setBilibiliEnabled(settings.enabledSources.bilibili);
+      setGithubEnabled(settings.enabledSources.github);
       setTheme(settings.theme);
       setLocale(settings.locale);
       applyTheme(settings.theme);
@@ -521,7 +588,7 @@ export function App() {
     const current = await getSettings();
     // 全局暂停时，点击视觉上已关闭的来源开关表示恢复 Seenest 并启用该来源。
     const next = current.captureEnabled ? !current.enabledSources.x : true;
-    const nextCaptureEnabled = next || current.enabledSources.bilibili;
+    const nextCaptureEnabled = next || current.enabledSources.bilibili || current.enabledSources.github;
     setXEnabled(next);
     setCaptureEnabled(nextCaptureEnabled);
     await updateSettings({
@@ -537,13 +604,13 @@ export function App() {
     if (next && !current.enabledSources.bilibili && typeof browser !== 'undefined') {
       const granted = await browser.permissions.request({ origins: BILIBILI_OPTIONAL_ORIGINS });
       if (!granted) {
-        setNotice(t('permissions.requestDenied'));
+        showNotice(t('permissions.requestDenied'), 'warning');
         return;
       }
     }
 
     setBilibiliEnabled(next);
-    const nextCaptureEnabled = next || current.enabledSources.x;
+    const nextCaptureEnabled = next || current.enabledSources.x || current.enabledSources.github;
     setCaptureEnabled(nextCaptureEnabled);
     await updateSettings({
       captureEnabled: nextCaptureEnabled,
@@ -553,7 +620,33 @@ export function App() {
       const message: SeenestMessage = { type: 'SEENEST_SYNC_SOURCE_REGISTRATION' };
       await browser.runtime.sendMessage(message);
     }
-    setNotice(next ? t('permissions.bilibiliEnabled') : t('permissions.bilibiliDisabled'));
+    showNotice(next ? t('permissions.bilibiliEnabled') : t('permissions.bilibiliDisabled'));
+  };
+
+  /** GitHub 只在用户主动授权后注入，并仅解析已打开的公开仓库与 Issue 页面。 */
+  const toggleGithubCapture = async () => {
+    const current = await getSettings();
+    const next = current.captureEnabled ? !current.enabledSources.github : true;
+    if (next && !current.enabledSources.github && typeof browser !== 'undefined') {
+      const granted = await browser.permissions.request({ origins: GITHUB_OPTIONAL_ORIGINS });
+      if (!granted) {
+        showNotice(t('permissions.githubRequestDenied'), 'warning');
+        return;
+      }
+    }
+
+    setGithubEnabled(next);
+    const nextCaptureEnabled = next || current.enabledSources.x || current.enabledSources.bilibili;
+    setCaptureEnabled(nextCaptureEnabled);
+    await updateSettings({
+      captureEnabled: nextCaptureEnabled,
+      enabledSources: { ...current.enabledSources, github: next },
+    });
+    if (typeof browser !== 'undefined') {
+      const message: SeenestMessage = { type: 'SEENEST_SYNC_SOURCE_REGISTRATION' };
+      await browser.runtime.sendMessage(message);
+    }
+    showNotice(next ? t('permissions.githubEnabled') : t('permissions.githubDisabled'));
   };
 
   /** 即时应用并持久化主题；system 模式会继续监听操作系统外观变化。 */
@@ -573,13 +666,13 @@ export function App() {
   /** 导出可完整恢复的 JSON 备份。 */
   const handleExport = async () => {
     downloadJson(await exportHistory());
-    setNotice(t('backup.exported'));
+    showNotice(t('backup.exported'));
   };
 
   /** 将当前全部记录整理为 Excel 文件并下载。 */
   const handleExportExcel = async () => {
     await exportHistoryExcel(await db.history.orderBy('lastSeenAt').reverse().toArray(), locale);
-    setNotice(t('backup.excelExported'));
+    showNotice(t('backup.excelExported'));
   };
 
   /** 读取用户选择的 JSON 备份，校验后合并到本地数据库。 */
@@ -591,9 +684,9 @@ export function App() {
       const count = await importHistory(payload, t('backup.invalid'));
       // 导入会改变完整数据集；若已开启自动备份，立即同步一份新的快照。
       await writeAutoBackupSnapshot(locale);
-      setNotice(t('backup.restored', { count }));
+      showNotice(t('backup.restored', { count }));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('backup.importFailed'));
+      showNotice(error instanceof Error ? error.message : t('backup.importFailed'), 'error');
     } finally {
       event.target.value = '';
     }
@@ -609,10 +702,10 @@ export function App() {
       const result = autoBackup && autoBackup.permission !== 'granted'
         ? await reconnectAutoBackupFile(autoBackup, locale)
         : await connectAutoBackupFile(locale);
-      setNotice(autoBackupNotice(result, t));
+      showNotice(autoBackupNotice(result, t));
     } catch (error) {
       if (!isPickerCancelled(error)) {
-        setNotice(error instanceof Error ? error.message : t('backup.connectFailed'));
+        showNotice(error instanceof Error ? error.message : t('backup.connectFailed'), 'error');
       }
     } finally {
       setBackupBusy(false);
@@ -623,7 +716,7 @@ export function App() {
   const handleAutoBackupNow = async () => {
     setBackupBusy(true);
     try {
-      setNotice(autoBackupNotice(await writeAutoBackupSnapshot(locale), t));
+      showNotice(autoBackupNotice(await writeAutoBackupSnapshot(locale), t));
     } finally {
       setBackupBusy(false);
     }
@@ -632,25 +725,27 @@ export function App() {
   /** 关闭自动备份只移除扩展保存的授权，不删除磁盘上已有的 JSON 文件。 */
   const handleAutoBackupDisconnect = async () => {
     await disconnectAutoBackupFile();
-    setNotice(t('backup.disconnected'));
+    showNotice(t('backup.disconnected'));
   };
 
   /** 二次确认后删除当前设备中的全部时光记录。 */
   const handleClear = async () => {
     if (!window.confirm(t('clear.confirm'))) return;
     await clearHistory();
-    setNotice(t('clear.done'));
+    showNotice(t('clear.done'));
   };
 
   /** 同时清空来源、关键词和时间范围，恢复完整记录列表。 */
   const resetFilters = () => { setQuery(''); setSourceFilter('all'); setTimeFilter('all'); setSelectedDate(null); };
   const xCaptureActive = captureEnabled && xEnabled;
   const bilibiliCaptureActive = captureEnabled && bilibiliEnabled;
+  const githubCaptureActive = captureEnabled && githubEnabled;
+  const anyCaptureActive = captureEnabled && (xEnabled || bilibiliEnabled || githubEnabled);
 
   return (
     <main className="page-shell">
-      <Header view={view} setView={setView} captureEnabled={captureEnabled && (xEnabled || bilibiliEnabled)} onExportExcel={() => void handleExportExcel()} locale={locale} theme={theme} onLocaleChange={(next) => void changeLocale(next)} onThemeChange={(next) => void changeTheme(next)} t={t} />
-      {notice ? <button className="toast" onClick={() => setNotice('')}>{notice}</button> : null}
+      <Header view={view} setView={setView} captureEnabled={anyCaptureActive} onExportExcel={() => void handleExportExcel()} locale={locale} theme={theme} onLocaleChange={(next) => void changeLocale(next)} onThemeChange={(next) => void changeTheme(next)} t={t} />
+      {notice ? <SeenestMessage key={notice.id} message={notice} closeLabel={t('action.close')} onClose={() => setNotice(null)} /> : null}
 
       {view === 'history' ? (
         <>
@@ -690,9 +785,10 @@ export function App() {
 
             <aside className="side-column">
               <section className="side-card status-card">
-                <div className="side-card-head"><h3>{t('sidebar.status')}</h3><span className={captureEnabled && (xEnabled || bilibiliEnabled) ? 'live-dot' : 'idle-dot'} /></div>
+                <div className="side-card-head"><h3>{t('sidebar.status')}</h3><span className={anyCaptureActive ? 'live-dot' : 'idle-dot'} /></div>
                 <div className="source-row"><span className="x-logo"><SourceIcon source="x" /></span><div><strong>X / Twitter</strong><small>{!captureEnabled ? t('sidebar.globallyPaused') : xEnabled ? t('sidebar.authorized') : t('sidebar.xDisabled')}</small></div><button className={`switch ${xCaptureActive ? 'on' : ''}`} onClick={() => void toggleXCapture()} aria-label={xCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div>
                 <div className="source-row bilibili-source-row"><span className="x-logo"><SourceIcon source="bilibili" /></span><div><strong>{t('source.bilibili')}</strong><small>{!captureEnabled ? t('sidebar.globallyPaused') : bilibiliEnabled ? t('sidebar.bilibiliAuthorized') : t('sidebar.bilibiliDisabled')}</small></div><button className={`switch ${bilibiliCaptureActive ? 'on' : ''}`} onClick={() => void toggleBilibiliCapture()} aria-label={bilibiliCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div>
+                <div className="source-row github-source-row"><span className="x-logo"><SourceIcon source="github" /></span><div><strong>{t('source.github')}</strong><small>{!captureEnabled ? t('sidebar.globallyPaused') : githubEnabled ? t('sidebar.githubAuthorized') : t('sidebar.githubDisabled')}</small></div><button className={`switch ${githubCaptureActive ? 'on' : ''}`} onClick={() => void toggleGithubCapture()} aria-label={githubCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div>
                 <div className="capture-rule"><span>✓</span><p><strong>{t('sidebar.detailOnly')}</strong>{t('sidebar.detailOnlyText')}</p></div>
                 <div className="capture-fields"><span>{t('sidebar.autoSave')}</span><p>{t('sidebar.fields')}</p></div>
               </section>
@@ -739,7 +835,7 @@ export function App() {
       ) : null}
 
       {view === 'permissions' ? (
-        <section className="settings-page"><div className="settings-heading"><span>{t('permissions.eyebrow')}</span><h1>{t('permissions.title')}</h1><p>{t('permissions.subtitle')}</p></div><div className="settings-list"><div className="settings-card"><div className="permission-logo"><SourceIcon source="x" /></div><div className="permission-copy"><strong>X / Twitter</strong><span>{t('permissions.publicOnly')}</span><code>https://x.com/*</code></div><button className={`switch large ${xCaptureActive ? 'on' : ''}`} onClick={() => void toggleXCapture()} aria-label={xCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="bilibili" /></div><div className="permission-copy"><strong>{t('source.bilibili')}</strong><span>{t('permissions.bilibiliPublicOnly')}</span><code>https://www.bilibili.com/video/*</code></div><button className={`switch large ${bilibiliCaptureActive ? 'on' : ''}`} onClick={() => void toggleBilibiliCapture()} aria-label={bilibiliCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div></div><div className="privacy-card"><strong>{t('permissions.minimum')}</strong><p>{t('permissions.minimumText')}</p></div></section>
+        <section className="settings-page"><div className="settings-heading"><span>{t('permissions.eyebrow')}</span><h1>{t('permissions.title')}</h1><p>{t('permissions.subtitle')}</p></div><div className="settings-list"><div className="settings-card"><div className="permission-logo"><SourceIcon source="x" /></div><div className="permission-copy"><strong>X / Twitter</strong><span>{t('permissions.publicOnly')}</span><code>https://x.com/*</code></div><button className={`switch large ${xCaptureActive ? 'on' : ''}`} onClick={() => void toggleXCapture()} aria-label={xCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="bilibili" /></div><div className="permission-copy"><strong>{t('source.bilibili')}</strong><span>{t('permissions.bilibiliPublicOnly')}</span><code>https://www.bilibili.com/video/*</code></div><button className={`switch large ${bilibiliCaptureActive ? 'on' : ''}`} onClick={() => void toggleBilibiliCapture()} aria-label={bilibiliCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="github" /></div><div className="permission-copy"><strong>{t('source.github')}</strong><span>{t('permissions.githubPublicOnly')}</span><code>https://github.com/*</code></div><button className={`switch large ${githubCaptureActive ? 'on' : ''}`} onClick={() => void toggleGithubCapture()} aria-label={githubCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div></div><div className="privacy-card"><strong>{t('permissions.minimum')}</strong><p>{t('permissions.minimumText')}</p></div></section>
       ) : null}
 
       {view === 'data' ? (

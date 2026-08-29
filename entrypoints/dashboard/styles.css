@@ -142,6 +142,7 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid 
 .source-badge { height: 21px; padding: 0 8px 0 6px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px; background: var(--surface-muted); color: var(--text-2); font-size: 10px; font-weight: 650; line-height: 1; }
 .source-badge > span { width: 12px; height: 12px; display: grid; place-items: center; }
 .source-badge.source-bilibili { background: rgba(240, 68, 85, .09); color: #d94352; }
+.source-badge.source-github { background: rgba(36, 41, 47, .09); color: var(--text-1); }
 .type-badge { flex-shrink: 0; min-width: 42px; height: 21px; padding: 0 11px; border: 0; border-radius: 999px; background: #dcecff; color: #276fd3; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 650; line-height: 1; letter-spacing: .02em; }
 .history-content > p { color: var(--text-2); font-size: 12px; line-height: 1.6; margin: 8px 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-meta { display: flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 11px; min-width: 0; }
@@ -284,7 +285,20 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid 
 .data-actions .backup-action.connected .action-icon { background: #eaf8f1; color: #27a96f; }
 .data-actions .danger .action-icon { background: #fff1f1; color: #d65757; }
 .data-actions .danger button { background: #fffafa; border-color: #f3dada; color: #c84f4f; }
-.toast { position: fixed; z-index: 10; left: 50%; top: 78px; transform: translateX(-50%); border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text-2); box-shadow: 0 8px 24px var(--shadow); padding: 9px 14px; font-size: 11px; cursor: pointer; }
+.seenest-message { position: fixed; z-index: 100; left: 50%; top: 76px; min-width: 250px; max-width: min(460px, calc(100vw - 28px)); min-height: 42px; transform: translateX(-50%); display: grid; grid-template-columns: 22px minmax(0, 1fr) 24px; align-items: center; gap: 9px; border: 1px solid color-mix(in srgb, var(--blue) 20%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--surface) 94%, var(--blue-soft)); color: var(--text-1); box-shadow: 0 12px 34px color-mix(in srgb, var(--blue) 12%, var(--shadow)); padding: 8px 9px 8px 12px; font-size: 12px; line-height: 1.45; backdrop-filter: blur(14px); animation: seenest-message-in .22s cubic-bezier(.2,.75,.3,1) both; }
+.seenest-message.leaving { pointer-events: none; animation: seenest-message-out .2s ease both; }
+.message-icon { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: var(--blue-soft); color: var(--blue); }
+.message-icon svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.seenest-message.success .message-icon { background: color-mix(in srgb, #29b77d 13%, var(--surface)); color: #24a873; }
+.seenest-message.warning { border-color: color-mix(in srgb, #d99a35 28%, var(--line)); }
+.seenest-message.warning .message-icon { background: color-mix(in srgb, #d99a35 14%, var(--surface)); color: #c88724; }
+.seenest-message.error { border-color: color-mix(in srgb, #dc5c68 28%, var(--line)); }
+.seenest-message.error .message-icon { background: color-mix(in srgb, #dc5c68 13%, var(--surface)); color: #d34e5b; }
+.message-text { min-width: 0; overflow-wrap: anywhere; }
+.message-close { width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--text-3); padding: 0 0 2px; font: 17px/1 system-ui, sans-serif; cursor: pointer; transition: color .15s ease, background .15s ease; }
+.message-close:hover { background: var(--surface-muted); color: var(--text-1); }
+@keyframes seenest-message-in { from { opacity: 0; transform: translate(-50%, -12px) scale(.98); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+@keyframes seenest-message-out { from { opacity: 1; transform: translate(-50%, 0) scale(1); } to { opacity: 0; transform: translate(-50%, -8px) scale(.985); } }
 
 /* 深色模式中的次级区域继续使用语义色，保留品牌蓝色但降低大面积亮度。 */
 :root[data-theme="dark"] .header-action-link,
@@ -313,6 +327,7 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid 
 @media (prefers-reduced-motion: reduce) {
   .calendar-track { transition: none; }
   .calendar-progress button span { width: 100%; animation: none; }
+  .seenest-message, .seenest-message.leaving { animation-duration: .01ms; }
 }
 
 @media (max-width: 900px) {
