@@ -103,6 +103,11 @@ export async function queryHistoryPage(options: HistoryPageQuery): Promise<Histo
 
 /** 合并平台重新解析出的字段，同时保留首次所见时间和之前抓到的有效媒体、互动数据。 */
 export function mergeCapturedMemory(existing: MemoryItem, captured: CapturedMemoryItem, seenAt: string): MemoryItem {
+  const existingPreview = captured.source === 'xiaohongshu'
+    && existing.mediaPreviewUrl
+    && /picasso-static\.xiaohongshu\.com\/fe-platform|fe-video-qc\.xhscdn\.com\/fe-platform|favicon|logo/i.test(existing.mediaPreviewUrl)
+    ? undefined
+    : existing.mediaPreviewUrl;
   return {
     ...existing,
     ...captured,
@@ -114,7 +119,8 @@ export function mergeCapturedMemory(existing: MemoryItem, captured: CapturedMemo
     likeCount: captured.likeCount ?? existing.likeCount ?? null,
     mediaType: captured.mediaType ?? existing.mediaType,
     mediaUrl: captured.mediaUrl ?? existing.mediaUrl,
-    mediaPreviewUrl: captured.mediaPreviewUrl ?? existing.mediaPreviewUrl,
+    // 重新访问旧版抓取的小红书记录时，移除曾误存的站点品牌占位图。
+    mediaPreviewUrl: captured.mediaPreviewUrl ?? existingPreview,
     mediaAlt: captured.mediaAlt ?? existing.mediaAlt,
     durationSeconds: captured.durationSeconds ?? existing.durationSeconds ?? null,
     firstSeenAt: existing.firstSeenAt,

@@ -33,6 +33,12 @@ import {
   YOUTUBE_OPTIONAL_ORIGINS,
   YOUTUBE_PAGE_ORIGIN,
 } from '../src/sources/youtube';
+import {
+  XIAOHONGSHU_CONTENT_SCRIPT_FILE,
+  XIAOHONGSHU_CONTENT_SCRIPT_ID,
+  XIAOHONGSHU_OPTIONAL_ORIGINS,
+  XIAOHONGSHU_PAGE_ORIGINS,
+} from '../src/sources/xiaohongshu';
 import { writeAutoBackupSnapshot } from '../src/storage/auto-backup';
 import { ensurePersistentStorage } from '../src/storage/persistence';
 import { DEFAULT_SETTINGS, getSettings } from '../src/storage/settings';
@@ -45,6 +51,7 @@ let bilibiliRequestInFlight = false;
 let bilibiliContentScriptSyncQueue: Promise<void> = Promise.resolve();
 let githubContentScriptSyncQueue: Promise<void> = Promise.resolve();
 let youtubeContentScriptSyncQueue: Promise<void> = Promise.resolve();
+let xiaohongshuContentScriptSyncQueue: Promise<void> = Promise.resolve();
 
 /**
  * 把自动备份安排在最后一次记录变化的约 30 秒后。
@@ -93,20 +100,31 @@ function isTrustedYoutubeSender(url?: string): boolean {
   }
 }
 
+function isTrustedXiaohongshuSender(url?: string): boolean {
+  if (!url) return false;
+  try {
+    return ['xiaohongshu.com', 'www.xiaohongshu.com'].includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** 普通 DOM 采集消息只允许写入与发送页面一致的平台前缀。 */
-function trustedMemorySource(url: string | undefined, memoryId: string): 'x' | 'github' | 'youtube' | '' {
+function trustedMemorySource(url: string | undefined, memoryId: string): 'x' | 'github' | 'youtube' | 'xiaohongshu' | '' {
   if (isTrustedXSender(url) && memoryId.startsWith('x:')) return 'x';
   if (isTrustedGithubSender(url) && memoryId.startsWith('github:')) return 'github';
   if (isTrustedYoutubeSender(url) && memoryId.startsWith('youtube:')) return 'youtube';
+  if (isTrustedXiaohongshuSender(url) && memoryId.startsWith('xiaohongshu:')) return 'xiaohongshu';
   return '';
 }
 
 /** 同时校验发送页面、Memory ID 与 Visit ID 的平台前缀，阻止跨来源修改访问数据。 */
-function trustedActivitySource(url: string | undefined, memoryId: string, visitId: string): 'x' | 'bilibili' | 'github' | 'youtube' | '' {
+function trustedActivitySource(url: string | undefined, memoryId: string, visitId: string): 'x' | 'bilibili' | 'github' | 'youtube' | 'xiaohongshu' | '' {
   if (isTrustedXSender(url) && memoryId.startsWith('x:') && visitId.startsWith('x:visit:')) return 'x';
   if (isTrustedBilibiliSender(url) && memoryId.startsWith('bilibili:') && visitId.startsWith('bilibili:visit:')) return 'bilibili';
   if (isTrustedGithubSender(url) && memoryId.startsWith('github:') && visitId.startsWith('github:visit:')) return 'github';
   if (isTrustedYoutubeSender(url) && memoryId.startsWith('youtube:') && visitId.startsWith('youtube:visit:')) return 'youtube';
+  if (isTrustedXiaohongshuSender(url) && memoryId.startsWith('xiaohongshu:') && visitId.startsWith('xiaohongshu:visit:')) return 'xiaohongshu';
   return '';
 }
 
@@ -229,8 +247,44 @@ function syncYoutubeContentScript(): Promise<void> {
   return youtubeContentScriptSyncQueue;
 }
 
+/** 小红书仅在用户授权后注入，详情页解析完全来自当前页面公开 DOM。 */
+async function reconcileXiaohongshuContentScript(): Promise<void> {
+  const settings = await getSettings();
+  const hasPermission = await browser.permissions.contains({ origins: XIAOHONGSHU_OPTIONAL_ORIGINS });
+  const registered = await browser.scripting.getRegisteredContentScripts({ ids: [XIAOHONGSHU_CONTENT_SCRIPT_ID] });
+  const shouldRegister = settings.enabledSources.xiaohongshu && hasPermission;
+
+  if (shouldRegister && !registered.length) {
+    try {
+      await browser.scripting.registerContentScripts([{
+        id: XIAOHONGSHU_CONTENT_SCRIPT_ID,
+        js: [XIAOHONGSHU_CONTENT_SCRIPT_FILE],
+        matches: XIAOHONGSHU_PAGE_ORIGINS,
+        runAt: 'document_idle',
+        persistAcrossSessions: true,
+      }]);
+    } catch (error) {
+      if (!isExpectedContentScriptStateError(error, 'duplicate script id')) throw error;
+    }
+  } else if (!shouldRegister && registered.length) {
+    try {
+      await browser.scripting.unregisterContentScripts({ ids: [XIAOHONGSHU_CONTENT_SCRIPT_ID] });
+    } catch (error) {
+      if (!isExpectedContentScriptStateError(error, 'non-existent script id')) throw error;
+    }
+  }
+}
+
+function syncXiaohongshuContentScript(): Promise<void> {
+  const task = xiaohongshuContentScriptSyncQueue.then(reconcileXiaohongshuContentScript, reconcileXiaohongshuContentScript);
+  xiaohongshuContentScriptSyncQueue = task.catch((error) => {
+    console.warn('[Seenest] Failed to sync Xiaohongshu content script:', error);
+  });
+  return xiaohongshuContentScriptSyncQueue;
+}
+
 async function syncOptionalContentScripts(): Promise<void> {
-  await Promise.all([syncBilibiliContentScript(), syncGithubContentScript(), syncYoutubeContentScript()]);
+  await Promise.all([syncBilibiliContentScript(), syncGithubContentScript(), syncYoutubeContentScript(), syncXiaohongshuContentScript()]);
 }
 
 async function readBilibiliRequestGuard(): Promise<BilibiliRequestGuardState> {
@@ -343,7 +397,8 @@ export default defineBackground(() => {
       const trusted = isTrustedXSender(sender.url ?? sender.tab?.url)
         || isTrustedBilibiliSender(sender.url ?? sender.tab?.url)
         || isTrustedGithubSender(sender.url ?? sender.tab?.url)
-        || isTrustedYoutubeSender(sender.url ?? sender.tab?.url);
+        || isTrustedYoutubeSender(sender.url ?? sender.tab?.url)
+        || isTrustedXiaohongshuSender(sender.url ?? sender.tab?.url);
       if (!trusted) return { ok: false, active: false };
       return { ok: true, active: await browser.idle.queryState(ACTIVE_TIME_IDLE_THRESHOLD_SECONDS) === 'active' };
     }

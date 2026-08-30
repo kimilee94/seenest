@@ -28,6 +28,7 @@ import { dayDistance, formatCreatedAt, formatDate, formatPublishedAt, formatTime
 import { BILIBILI_OPTIONAL_ORIGINS } from '../../src/sources/bilibili';
 import { GITHUB_OPTIONAL_ORIGINS } from '../../src/sources/github';
 import { YOUTUBE_OPTIONAL_ORIGINS } from '../../src/sources/youtube';
+import { XIAOHONGSHU_OPTIONAL_ORIGINS } from '../../src/sources/xiaohongshu';
 
 type View = 'history' | 'permissions' | 'data' | 'privacy';
 type TimeFilter = HistoryTimeFilter;
@@ -52,6 +53,7 @@ function sourceLabel(source: string, t: Translate): string {
   if (source === 'bilibili') return t('source.bilibili');
   if (source === 'github') return t('source.github');
   if (source === 'youtube') return t('source.youtube');
+  if (source === 'xiaohongshu') return t('source.xiaohongshu');
   return source;
 }
 
@@ -61,6 +63,7 @@ function compactSourceLabel(source: string, t: Translate): string {
   if (source === 'bilibili') return t('source.bilibiliShort');
   if (source === 'github') return t('source.githubShort');
   if (source === 'youtube') return t('source.youtubeShort');
+  if (source === 'xiaohongshu') return t('source.xiaohongshuShort');
   return source;
 }
 
@@ -109,6 +112,7 @@ function SourceIcon({ source }: { source: string }) {
   if (source === 'bilibili') return <img className="source-symbol" src="/icons/source-bilibili.svg" alt="" aria-hidden="true" />;
   if (source === 'github') return <img className="source-symbol" src="/icons/source-github.svg" alt="" aria-hidden="true" />;
   if (source === 'youtube') return <img className="source-symbol" src="/icons/source-youtube.svg" alt="" aria-hidden="true" />;
+  if (source === 'xiaohongshu') return <img className="source-symbol" src="/icons/source-xiaohongshu.svg" alt="" aria-hidden="true" />;
   return <span className="source-letter" aria-hidden="true">{source.slice(0, 1).toUpperCase()}</span>;
 }
 
@@ -310,8 +314,10 @@ function HistoryRow({ record, locale, t }: { record: HistoryRecord; locale: Loca
             <strong>{record.authorName}</strong>
             {record.authorHandle && record.source !== 'bilibili' ? <span>{record.authorHandle}</span> : null}
           </span>}
-          <i />
-          <span>{record.contentType === 'repository' ? formatCreatedAt(record.publishedAt, locale) : formatPublishedAt(record.publishedAt, locale)}</span>
+          {record.publishedAt ? <>
+            <i />
+            <span>{record.contentType === 'repository' ? formatCreatedAt(record.publishedAt, locale) : formatPublishedAt(record.publishedAt, locale)}</span>
+          </> : null}
           {record.visitCount > 1 ? <><i /><span>{t('history.visitCount', { count: record.visitCount })}</span></> : null}
           {activeDuration ? <><i /><span className="active-time">{t('history.activeTime', { duration: activeDuration })}</span></> : null}
         </div>
@@ -444,6 +450,7 @@ export function App() {
   const [bilibiliEnabled, setBilibiliEnabled] = useState(false);
   const [githubEnabled, setGithubEnabled] = useState(false);
   const [youtubeEnabled, setYoutubeEnabled] = useState(false);
+  const [xiaohongshuEnabled, setXiaohongshuEnabled] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>('system');
   const [locale, setLocale] = useState<Locale>('zh-CN');
   const [query, setQuery] = useState('');
@@ -504,8 +511,9 @@ export function App() {
     ...(bilibiliEnabled ? ['bilibili'] : []),
     ...(githubEnabled ? ['github'] : []),
     ...(youtubeEnabled ? ['youtube'] : []),
+    ...(xiaohongshuEnabled ? ['xiaohongshu'] : []),
     ...sourceOptions,
-  ])), [bilibiliEnabled, githubEnabled, youtubeEnabled, sourceOptions]);
+  ])), [bilibiliEnabled, githubEnabled, youtubeEnabled, xiaohongshuEnabled, sourceOptions]);
   const pageStart = historyPage.total ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
   const pageEnd = Math.min(currentPage * PAGE_SIZE, historyPage.total);
 
@@ -517,6 +525,7 @@ export function App() {
       setBilibiliEnabled(settings.enabledSources.bilibili);
       setGithubEnabled(settings.enabledSources.github);
       setYoutubeEnabled(settings.enabledSources.youtube);
+      setXiaohongshuEnabled(settings.enabledSources.xiaohongshu);
       setTheme(settings.theme);
       setLocale(settings.locale);
       applyTheme(settings.theme);
@@ -636,7 +645,7 @@ export function App() {
     const current = await getSettings();
     // 全局暂停时，点击视觉上已关闭的来源开关表示恢复 Seenest 并启用该来源。
     const next = current.captureEnabled ? !current.enabledSources.x : true;
-    const nextCaptureEnabled = next || current.enabledSources.bilibili || current.enabledSources.github || current.enabledSources.youtube;
+    const nextCaptureEnabled = next || current.enabledSources.bilibili || current.enabledSources.github || current.enabledSources.youtube || current.enabledSources.xiaohongshu;
     setXEnabled(next);
     setCaptureEnabled(nextCaptureEnabled);
     await updateSettings({
@@ -658,7 +667,7 @@ export function App() {
     }
 
     setBilibiliEnabled(next);
-    const nextCaptureEnabled = next || current.enabledSources.x || current.enabledSources.github || current.enabledSources.youtube;
+    const nextCaptureEnabled = next || current.enabledSources.x || current.enabledSources.github || current.enabledSources.youtube || current.enabledSources.xiaohongshu;
     setCaptureEnabled(nextCaptureEnabled);
     await updateSettings({
       captureEnabled: nextCaptureEnabled,
@@ -684,7 +693,7 @@ export function App() {
     }
 
     setGithubEnabled(next);
-    const nextCaptureEnabled = next || current.enabledSources.x || current.enabledSources.bilibili || current.enabledSources.youtube;
+    const nextCaptureEnabled = next || current.enabledSources.x || current.enabledSources.bilibili || current.enabledSources.youtube || current.enabledSources.xiaohongshu;
     setCaptureEnabled(nextCaptureEnabled);
     await updateSettings({
       captureEnabled: nextCaptureEnabled,
@@ -710,7 +719,7 @@ export function App() {
     }
 
     setYoutubeEnabled(next);
-    const nextCaptureEnabled = next || current.enabledSources.x || current.enabledSources.bilibili || current.enabledSources.github;
+    const nextCaptureEnabled = next || current.enabledSources.x || current.enabledSources.bilibili || current.enabledSources.github || current.enabledSources.xiaohongshu;
     setCaptureEnabled(nextCaptureEnabled);
     await updateSettings({
       captureEnabled: nextCaptureEnabled,
@@ -721,6 +730,32 @@ export function App() {
       await browser.runtime.sendMessage(message);
     }
     showNotice(next ? t('permissions.youtubeEnabled') : t('permissions.youtubeDisabled'));
+  };
+
+  /** 小红书只解析用户主动打开的图文或视频笔记详情，不读取首页推荐曝光。 */
+  const toggleXiaohongshuCapture = async () => {
+    const current = await getSettings();
+    const next = current.captureEnabled ? !current.enabledSources.xiaohongshu : true;
+    if (next && !current.enabledSources.xiaohongshu && typeof browser !== 'undefined') {
+      const granted = await browser.permissions.request({ origins: XIAOHONGSHU_OPTIONAL_ORIGINS });
+      if (!granted) {
+        showNotice(t('permissions.xiaohongshuRequestDenied'), 'warning');
+        return;
+      }
+    }
+
+    setXiaohongshuEnabled(next);
+    const nextCaptureEnabled = next || current.enabledSources.x || current.enabledSources.bilibili || current.enabledSources.github || current.enabledSources.youtube;
+    setCaptureEnabled(nextCaptureEnabled);
+    await updateSettings({
+      captureEnabled: nextCaptureEnabled,
+      enabledSources: { ...current.enabledSources, xiaohongshu: next },
+    });
+    if (typeof browser !== 'undefined') {
+      const message: SeenestMessage = { type: 'SEENEST_SYNC_SOURCE_REGISTRATION' };
+      await browser.runtime.sendMessage(message);
+    }
+    showNotice(next ? t('permissions.xiaohongshuEnabled') : t('permissions.xiaohongshuDisabled'));
   };
 
   /** 即时应用并持久化主题；system 模式会继续监听操作系统外观变化。 */
@@ -815,7 +850,8 @@ export function App() {
   const bilibiliCaptureActive = captureEnabled && bilibiliEnabled;
   const githubCaptureActive = captureEnabled && githubEnabled;
   const youtubeCaptureActive = captureEnabled && youtubeEnabled;
-  const anyCaptureActive = captureEnabled && (xEnabled || bilibiliEnabled || githubEnabled || youtubeEnabled);
+  const xiaohongshuCaptureActive = captureEnabled && xiaohongshuEnabled;
+  const anyCaptureActive = captureEnabled && (xEnabled || bilibiliEnabled || githubEnabled || youtubeEnabled || xiaohongshuEnabled);
 
   return (
     <main className="page-shell">
@@ -862,9 +898,10 @@ export function App() {
               <section className="side-card status-card">
                 <div className="side-card-head"><h3>{t('sidebar.status')}</h3><span className={anyCaptureActive ? 'live-dot' : 'idle-dot'} /></div>
                 <div className="source-row"><span className="x-logo"><SourceIcon source="x" /></span><div><strong>X / Twitter</strong><small>{!captureEnabled ? t('sidebar.globallyPaused') : xEnabled ? t('sidebar.authorized') : t('sidebar.xDisabled')}</small></div><button className={`switch ${xCaptureActive ? 'on' : ''}`} onClick={() => void toggleXCapture()} aria-label={xCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div>
-                <div className="source-row bilibili-source-row"><span className="x-logo"><SourceIcon source="bilibili" /></span><div><strong>{t('source.bilibili')}</strong><small>{!captureEnabled ? t('sidebar.globallyPaused') : bilibiliEnabled ? t('sidebar.bilibiliAuthorized') : t('sidebar.bilibiliDisabled')}</small></div><button className={`switch ${bilibiliCaptureActive ? 'on' : ''}`} onClick={() => void toggleBilibiliCapture()} aria-label={bilibiliCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div>
                 <div className="source-row github-source-row"><span className="x-logo"><SourceIcon source="github" /></span><div><strong>{t('source.github')}</strong><small>{!captureEnabled ? t('sidebar.globallyPaused') : githubEnabled ? t('sidebar.githubAuthorized') : t('sidebar.githubDisabled')}</small></div><button className={`switch ${githubCaptureActive ? 'on' : ''}`} onClick={() => void toggleGithubCapture()} aria-label={githubCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div>
                 <div className="source-row youtube-source-row"><span className="x-logo"><SourceIcon source="youtube" /></span><div><strong>{t('source.youtube')}</strong><small>{!captureEnabled ? t('sidebar.globallyPaused') : youtubeEnabled ? t('sidebar.youtubeAuthorized') : t('sidebar.youtubeDisabled')}</small></div><button className={`switch ${youtubeCaptureActive ? 'on' : ''}`} onClick={() => void toggleYoutubeCapture()} aria-label={youtubeCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div>
+                <div className="source-row bilibili-source-row"><span className="x-logo"><SourceIcon source="bilibili" /></span><div><strong>{t('source.bilibili')}</strong><small>{!captureEnabled ? t('sidebar.globallyPaused') : bilibiliEnabled ? t('sidebar.bilibiliAuthorized') : t('sidebar.bilibiliDisabled')}</small></div><button className={`switch ${bilibiliCaptureActive ? 'on' : ''}`} onClick={() => void toggleBilibiliCapture()} aria-label={bilibiliCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div>
+                <div className="source-row xiaohongshu-source-row"><span className="x-logo"><SourceIcon source="xiaohongshu" /></span><div><strong>{t('source.xiaohongshu')}</strong><small>{!captureEnabled ? t('sidebar.globallyPaused') : xiaohongshuEnabled ? t('sidebar.xiaohongshuAuthorized') : t('sidebar.xiaohongshuDisabled')}</small></div><button className={`switch ${xiaohongshuCaptureActive ? 'on' : ''}`} onClick={() => void toggleXiaohongshuCapture()} aria-label={xiaohongshuCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div>
                 <div className="capture-rule"><span>✓</span><p><strong>{t('sidebar.detailOnly')}</strong>{t('sidebar.detailOnlyText')}</p></div>
                 <div className="capture-fields"><span>{t('sidebar.autoSave')}</span><p>{t('sidebar.fields')}</p></div>
               </section>
@@ -914,7 +951,7 @@ export function App() {
       ) : null}
 
       {view === 'permissions' ? (
-        <section className="settings-page"><div className="settings-heading"><span>{t('permissions.eyebrow')}</span><h1>{t('permissions.title')}</h1><p>{t('permissions.subtitle')}</p></div><div className="settings-list"><div className="settings-card"><div className="permission-logo"><SourceIcon source="x" /></div><div className="permission-copy"><strong>X / Twitter</strong><span>{t('permissions.publicOnly')}</span><code>https://x.com/*</code></div><button className={`switch large ${xCaptureActive ? 'on' : ''}`} onClick={() => void toggleXCapture()} aria-label={xCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="bilibili" /></div><div className="permission-copy"><strong>{t('source.bilibili')}</strong><span>{t('permissions.bilibiliPublicOnly')}</span><code>https://www.bilibili.com/video/*</code></div><button className={`switch large ${bilibiliCaptureActive ? 'on' : ''}`} onClick={() => void toggleBilibiliCapture()} aria-label={bilibiliCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="github" /></div><div className="permission-copy"><strong>{t('source.github')}</strong><span>{t('permissions.githubPublicOnly')}</span><code>https://github.com/*</code></div><button className={`switch large ${githubCaptureActive ? 'on' : ''}`} onClick={() => void toggleGithubCapture()} aria-label={githubCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="youtube" /></div><div className="permission-copy"><strong>{t('source.youtube')}</strong><span>{t('permissions.youtubePublicOnly')}</span><code>https://www.youtube.com/watch?v=…</code></div><button className={`switch large ${youtubeCaptureActive ? 'on' : ''}`} onClick={() => void toggleYoutubeCapture()} aria-label={youtubeCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div></div><div className="privacy-card"><strong>{t('permissions.minimum')}</strong><p>{t('permissions.minimumText')}</p><button type="button" onClick={() => setView('privacy')}>{t('privacy.openFull')}</button></div></section>
+        <section className="settings-page"><div className="settings-heading"><span>{t('permissions.eyebrow')}</span><h1>{t('permissions.title')}</h1><p>{t('permissions.subtitle')}</p></div><div className="settings-list"><div className="settings-card"><div className="permission-logo"><SourceIcon source="x" /></div><div className="permission-copy"><strong>X / Twitter</strong><span>{t('permissions.publicOnly')}</span><code>https://x.com/*</code></div><button className={`switch large ${xCaptureActive ? 'on' : ''}`} onClick={() => void toggleXCapture()} aria-label={xCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="bilibili" /></div><div className="permission-copy"><strong>{t('source.bilibili')}</strong><span>{t('permissions.bilibiliPublicOnly')}</span><code>https://www.bilibili.com/video/*</code></div><button className={`switch large ${bilibiliCaptureActive ? 'on' : ''}`} onClick={() => void toggleBilibiliCapture()} aria-label={bilibiliCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="github" /></div><div className="permission-copy"><strong>{t('source.github')}</strong><span>{t('permissions.githubPublicOnly')}</span><code>https://github.com/*</code></div><button className={`switch large ${githubCaptureActive ? 'on' : ''}`} onClick={() => void toggleGithubCapture()} aria-label={githubCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="youtube" /></div><div className="permission-copy"><strong>{t('source.youtube')}</strong><span>{t('permissions.youtubePublicOnly')}</span><code>https://www.youtube.com/watch?v=…</code></div><button className={`switch large ${youtubeCaptureActive ? 'on' : ''}`} onClick={() => void toggleYoutubeCapture()} aria-label={youtubeCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div><div className="settings-card"><div className="permission-logo"><SourceIcon source="xiaohongshu" /></div><div className="permission-copy"><strong>{t('source.xiaohongshu')}</strong><span>{t('permissions.xiaohongshuPublicOnly')}</span><code>https://www.xiaohongshu.com/explore/*</code></div><button className={`switch large ${xiaohongshuCaptureActive ? 'on' : ''}`} onClick={() => void toggleXiaohongshuCapture()} aria-label={xiaohongshuCaptureActive ? t('capture.pause') : t('capture.enable')}><i /></button></div></div><div className="privacy-card"><strong>{t('permissions.minimum')}</strong><p>{t('permissions.minimumText')}</p><button type="button" onClick={() => setView('privacy')}>{t('privacy.openFull')}</button></div></section>
       ) : null}
 
       {view === 'privacy' ? <PrivacyPage t={t} /> : null}

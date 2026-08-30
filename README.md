@@ -36,6 +36,7 @@ No account is required. Your Seenest collection stays on your device unless you 
 | Bilibili | Videos |
 | GitHub | Public repositories and Issues |
 | YouTube | Standard videos |
+| Xiaohongshu | Image and video notes |
 
 More platforms will be added gradually. Optional sites are enabled by the user from **Site Access** inside Seenest.
 

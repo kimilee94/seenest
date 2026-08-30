@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="小红书">
+  <defs>
+    <linearGradient id="xhs-red" x1="4" y1="3" x2="28" y2="29" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff4d67"/>
+      <stop offset="1" stop-color="#ff2442"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="9" fill="url(#xhs-red)"/>
+  <text x="16" y="18.8" fill="#fff" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="8.2" font-weight="800" letter-spacing="-.55">小红书</text>
+</svg>

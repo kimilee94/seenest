@@ -6,6 +6,10 @@ export interface CaptureRunnerOptions<TResult> {
   adapter: SiteAdapter<TResult>;
   settleMs: number;
   maxWaitMs: number;
+  /** 解析结果尚未就绪时的低频复查间隔；省略时继续只依赖 DOM 变化触发。 */
+  retryMs?: number;
+  /** 当前路由会话最多正式调用 Adapter 一次；失败后等待用户重新进入页面。 */
+  singleAttempt?: boolean;
   observeDom: boolean;
   isEnabled(): Promise<boolean>;
   onCaptured(capture: CapturedRoute<TResult>): Promise<void>;
@@ -112,8 +116,13 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
     }
     if (version !== generation) return;
     if (!result) {
-      // DOM 型 Adapter 会等待下一次节点变化；API 请求型 Adapter 在本次页面不做循环重试。
-      if (!options.observeDom) stopCaptureSession();
+      if (options.singleAttempt) {
+        stopCaptureSession();
+        return;
+      }
+      // 需要稳定性复核的平台使用固定低频轮询；其他 DOM Adapter 继续等待节点变化。
+      if (options.retryMs && options.retryMs > 0) scheduleAttempt(version, options.retryMs);
+      else if (!options.observeDom) stopCaptureSession();
       return;
     }
 
@@ -144,7 +153,10 @@ export function createCaptureRunner<TResult>(options: CaptureRunnerOptions<TResu
     };
 
     if (options.observeDom) {
-      observer = new MutationObserver(() => scheduleAttempt(version));
+      // 已有定时检查时不因持续动画或计数变化反复顺延，避免高频 DOM 更新让采集永久饥饿。
+      observer = new MutationObserver(() => {
+        if (captureTimer === undefined) scheduleAttempt(version);
+      });
       observer.observe(document.documentElement, { childList: true, subtree: true });
     }
     timeoutTimer = window.setTimeout(stopCaptureSession, options.maxWaitMs);

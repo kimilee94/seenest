@@ -9,6 +9,7 @@ export interface SeenestSettings {
     bilibili: boolean;
     github: boolean;
     youtube: boolean;
+    xiaohongshu: boolean;
   };
   theme: ThemeMode;
   locale: Locale;
@@ -24,7 +25,7 @@ export function detectPreferredLocale(language = typeof navigator !== 'undefined
 
 export const DEFAULT_SETTINGS: SeenestSettings = {
   captureEnabled: true,
-  enabledSources: { x: true, bilibili: false, github: false, youtube: false },
+  enabledSources: { x: true, bilibili: false, github: false, youtube: false, xiaohongshu: false },
   theme: 'system',
   locale: detectPreferredLocale(),
 };
