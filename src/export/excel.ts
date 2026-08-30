@@ -6,11 +6,11 @@ import { localDateKey } from '../utils/date';
 const EXCEL_COPY = {
   'zh-CN': {
     headers: ['来源', '类型', '标题', '正文', '发布人', '用户名', '作者主页', '发布时间', '评论数', '转发数', '分享数', '浏览量', '收藏量', '喜欢数', '视频时长（秒）', '媒体类型', '媒体链接', '媒体预览图', '首次收好', '最近看过', '看过次数', '活跃停留（秒）', '开始统计时间', '最近活跃时间', '原始链接'],
-    sourceBilibili: '哔哩哔哩', article: '文章', video: '视频', post: '帖子', image: '图片', sheet: 'Seenest 所见',
+    sourceBilibili: '哔哩哔哩', sourceYoutube: 'YouTube', article: '文章', video: '视频', post: '帖子', image: '图片', sheet: 'Seenest 所见',
   },
   en: {
     headers: ['Source', 'Type', 'Title', 'Content', 'Author', 'Username', 'Author Profile', 'Published At', 'Replies', 'Reposts', 'Shares', 'Views', 'Bookmarks', 'Likes', 'Video Duration (sec)', 'Media Type', 'Media URL', 'Media Preview', 'First Kept', 'Last Seen', 'Times Seen', 'Active Time (sec)', 'Measured From', 'Last Active At', 'Original URL'],
-    sourceBilibili: 'Bilibili', article: 'Article', video: 'Video', post: 'Post', image: 'Image', sheet: 'Seenest Archive',
+    sourceBilibili: 'Bilibili', sourceYoutube: 'YouTube', article: 'Article', video: 'Video', post: 'Post', image: 'Image', sheet: 'Seenest Archive',
   },
 } as const;
 
@@ -35,7 +35,7 @@ export function createHistorySheetData(records: HistoryRecord[], locale: Locale 
   }));
 
   const rows: SheetData = records.map((record) => [
-    record.source === 'bilibili' ? copy.sourceBilibili : record.source === 'x' ? 'X / Twitter' : record.source,
+    record.source === 'bilibili' ? copy.sourceBilibili : record.source === 'youtube' ? copy.sourceYoutube : record.source === 'x' ? 'X / Twitter' : record.source,
     record.contentType === 'article' ? copy.article : record.contentType === 'video' ? copy.video : copy.post,
     { value: record.title, wrap: true, alignVertical: 'top' },
     { value: record.contentText, wrap: true, alignVertical: 'top' },

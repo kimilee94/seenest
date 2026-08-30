@@ -27,6 +27,12 @@ import {
   GITHUB_OPTIONAL_ORIGINS,
   GITHUB_PAGE_ORIGIN,
 } from '../src/sources/github';
+import {
+  YOUTUBE_CONTENT_SCRIPT_FILE,
+  YOUTUBE_CONTENT_SCRIPT_ID,
+  YOUTUBE_OPTIONAL_ORIGINS,
+  YOUTUBE_PAGE_ORIGIN,
+} from '../src/sources/youtube';
 import { writeAutoBackupSnapshot } from '../src/storage/auto-backup';
 import { ensurePersistentStorage } from '../src/storage/persistence';
 import { DEFAULT_SETTINGS, getSettings } from '../src/storage/settings';
@@ -38,6 +44,7 @@ const ACTIVE_TIME_IDLE_THRESHOLD_SECONDS = 90;
 let bilibiliRequestInFlight = false;
 let bilibiliContentScriptSyncQueue: Promise<void> = Promise.resolve();
 let githubContentScriptSyncQueue: Promise<void> = Promise.resolve();
+let youtubeContentScriptSyncQueue: Promise<void> = Promise.resolve();
 
 /**
  * 把自动备份安排在最后一次记录变化的约 30 秒后。
@@ -77,18 +84,29 @@ function isTrustedGithubSender(url?: string): boolean {
   }
 }
 
+function isTrustedYoutubeSender(url?: string): boolean {
+  if (!url) return false;
+  try {
+    return ['youtube.com', 'www.youtube.com'].includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** 普通 DOM 采集消息只允许写入与发送页面一致的平台前缀。 */
-function trustedMemorySource(url: string | undefined, memoryId: string): 'x' | 'github' | '' {
+function trustedMemorySource(url: string | undefined, memoryId: string): 'x' | 'github' | 'youtube' | '' {
   if (isTrustedXSender(url) && memoryId.startsWith('x:')) return 'x';
   if (isTrustedGithubSender(url) && memoryId.startsWith('github:')) return 'github';
+  if (isTrustedYoutubeSender(url) && memoryId.startsWith('youtube:')) return 'youtube';
   return '';
 }
 
 /** 同时校验发送页面、Memory ID 与 Visit ID 的平台前缀，阻止跨来源修改访问数据。 */
-function trustedActivitySource(url: string | undefined, memoryId: string, visitId: string): 'x' | 'bilibili' | 'github' | '' {
+function trustedActivitySource(url: string | undefined, memoryId: string, visitId: string): 'x' | 'bilibili' | 'github' | 'youtube' | '' {
   if (isTrustedXSender(url) && memoryId.startsWith('x:') && visitId.startsWith('x:visit:')) return 'x';
   if (isTrustedBilibiliSender(url) && memoryId.startsWith('bilibili:') && visitId.startsWith('bilibili:visit:')) return 'bilibili';
   if (isTrustedGithubSender(url) && memoryId.startsWith('github:') && visitId.startsWith('github:visit:')) return 'github';
+  if (isTrustedYoutubeSender(url) && memoryId.startsWith('youtube:') && visitId.startsWith('youtube:visit:')) return 'youtube';
   return '';
 }
 
@@ -175,8 +193,44 @@ function syncGithubContentScript(): Promise<void> {
   return githubContentScriptSyncQueue;
 }
 
+/** YouTube 仅解析用户已打开的标准视频页面，不调用 Data API。 */
+async function reconcileYoutubeContentScript(): Promise<void> {
+  const settings = await getSettings();
+  const hasPermission = await browser.permissions.contains({ origins: YOUTUBE_OPTIONAL_ORIGINS });
+  const registered = await browser.scripting.getRegisteredContentScripts({ ids: [YOUTUBE_CONTENT_SCRIPT_ID] });
+  const shouldRegister = settings.enabledSources.youtube && hasPermission;
+
+  if (shouldRegister && !registered.length) {
+    try {
+      await browser.scripting.registerContentScripts([{
+        id: YOUTUBE_CONTENT_SCRIPT_ID,
+        js: [YOUTUBE_CONTENT_SCRIPT_FILE],
+        matches: [YOUTUBE_PAGE_ORIGIN],
+        runAt: 'document_idle',
+        persistAcrossSessions: true,
+      }]);
+    } catch (error) {
+      if (!isExpectedContentScriptStateError(error, 'duplicate script id')) throw error;
+    }
+  } else if (!shouldRegister && registered.length) {
+    try {
+      await browser.scripting.unregisterContentScripts({ ids: [YOUTUBE_CONTENT_SCRIPT_ID] });
+    } catch (error) {
+      if (!isExpectedContentScriptStateError(error, 'non-existent script id')) throw error;
+    }
+  }
+}
+
+function syncYoutubeContentScript(): Promise<void> {
+  const task = youtubeContentScriptSyncQueue.then(reconcileYoutubeContentScript, reconcileYoutubeContentScript);
+  youtubeContentScriptSyncQueue = task.catch((error) => {
+    console.warn('[Seenest] Failed to sync YouTube content script:', error);
+  });
+  return youtubeContentScriptSyncQueue;
+}
+
 async function syncOptionalContentScripts(): Promise<void> {
-  await Promise.all([syncBilibiliContentScript(), syncGithubContentScript()]);
+  await Promise.all([syncBilibiliContentScript(), syncGithubContentScript(), syncYoutubeContentScript()]);
 }
 
 async function readBilibiliRequestGuard(): Promise<BilibiliRequestGuardState> {
@@ -288,7 +342,8 @@ export default defineBackground(() => {
     if (message.type === 'SEENEST_ACTIVITY_STATE') {
       const trusted = isTrustedXSender(sender.url ?? sender.tab?.url)
         || isTrustedBilibiliSender(sender.url ?? sender.tab?.url)
-        || isTrustedGithubSender(sender.url ?? sender.tab?.url);
+        || isTrustedGithubSender(sender.url ?? sender.tab?.url)
+        || isTrustedYoutubeSender(sender.url ?? sender.tab?.url);
       if (!trusted) return { ok: false, active: false };
       return { ok: true, active: await browser.idle.queryState(ACTIVE_TIME_IDLE_THRESHOLD_SECONDS) === 'active' };
     }

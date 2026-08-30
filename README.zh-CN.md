@@ -35,6 +35,7 @@ Seenest 来自 **Seen + Nest**。每一次有价值的所见，都会回到属�
 | X / Twitter | 帖子与文章 |
 | 哔哩哔哩 | 视频 |
 | GitHub | 公开仓库与 Issue |
+| YouTube | 标准视频 |
 
 更多平台会逐步加入。需要额外权限的网站由用户在 Seenest 的“网站权限”中主动开启。
 
@@ -43,6 +44,21 @@ Seenest 来自 **Seen + Nest**。每一次有价值的所见，都会回到属�
 Seenest 坚持本地优先，只在你主动打开的已支持页面中工作，不会收集密码、Cookie、私信或无关网站的浏览活动。
 
 本地数据始终由你掌握，可以随时搜索、导出、恢复或清除。
+
+## 手动安装
+
+如果你想直接体验 Seenest，而不搭建开发环境：
+
+1. 打开 [Seenest 最新版本](https://github.com/kimilee94/seenest/releases/latest)。
+2. 在 **Assets** 中下载 `seenest-<版本号>-chrome.zip`。
+3. 选择一个准备长期保留的文件夹，将 ZIP 中的内容解压到这里。例如 macOS 或 Linux 可以使用 `~/Documents/Seenest`，Windows 可以使用 `%USERPROFILE%\Documents\Seenest`。
+4. 在 Chrome 地址栏打开 `chrome://extensions`。
+5. 打开右上角的“开发者模式”。
+6. 点击“加载已解压的扩展程序”。
+7. 选择刚才解压的文件夹，该文件夹中应直接包含 `manifest.json`。
+8. 如有需要，可以在 Chrome 扩展菜单中固定 Seenest。
+
+手动安装的扩展不会自动更新。更新 Seenest 时，请下载新版本 ZIP，将内容解压并覆盖到原来的安装文件夹，然后在 `chrome://extensions` 中找到现有 Seenest 并点击“重新加载”。保持安装文件夹路径不变，Chrome 才能继续使用原有的扩展本地数据；移动或删除该文件夹会导致已加载的扩展失效。
 
 ## 从源码安装
 

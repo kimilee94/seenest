@@ -35,6 +35,7 @@ No account is required. Your Seenest collection stays on your device unless you 
 | X / Twitter | Posts and articles |
 | Bilibili | Videos |
 | GitHub | Public repositories and Issues |
+| YouTube | Standard videos |
 
 More platforms will be added gradually. Optional sites are enabled by the user from **Site Access** inside Seenest.
 
@@ -43,6 +44,21 @@ More platforms will be added gradually. Optional sites are enabled by the user f
 Seenest is local-first and works only on supported pages that you open. It does not collect passwords, cookies, direct messages, or browsing activity from unrelated sites.
 
 You remain in control of your local data and can search, export, restore, or clear it at any time.
+
+## Manual installation
+
+If you want to try Seenest without setting up a development environment:
+
+1. Open the [latest Seenest release](https://github.com/kimilee94/seenest/releases/latest).
+2. Under **Assets**, download `seenest-<version>-chrome.zip`.
+3. Create a folder you plan to keep, then extract the ZIP contents into it. For example, use `~/Documents/Seenest` on macOS or Linux, or `%USERPROFILE%\Documents\Seenest` on Windows.
+4. Open `chrome://extensions` in Chrome.
+5. Enable **Developer mode** in the upper-right corner.
+6. Click **Load unpacked**.
+7. Select the extracted folder that directly contains `manifest.json`.
+8. If desired, pin Seenest from Chrome's extensions menu.
+
+Manually installed extensions do not update automatically. To update Seenest, download the new release ZIP, extract it over the same installation folder, and click **Reload** on the existing Seenest card in `chrome://extensions`. Keeping the same folder path allows Chrome to continue using the existing local extension data. Moving or deleting that folder will make the loaded extension unavailable.
 
 ## Install from source
 

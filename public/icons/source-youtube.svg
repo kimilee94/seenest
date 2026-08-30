@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="youtube-red" x1="4" y1="3" x2="28" y2="29" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF4558"/>
+      <stop offset="1" stop-color="#E5223A"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="9" fill="url(#youtube-red)"/>
+  <rect x="5" y="8" width="22" height="16" rx="5.5" fill="#fff"/>
+  <path d="M14 12.3c0-.7.78-1.12 1.37-.74l6.05 3.7a.87.87 0 0 1 0 1.48l-6.05 3.7A.88.88 0 0 1 14 19.7v-7.4Z" fill="#ED293F"/>
+</svg>
