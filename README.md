@@ -28,6 +28,16 @@ No account is required. Your Seenest collection stays on your device unless you 
 - Supports local data export, backup, and restore
 - Supports light, dark, and bilingual interfaces
 
+## Preview
+
+Search and filter the content you have seen, then return to the original page.
+
+![Seenest overview with content search, filters, and supported sites](./images/seenest-overview.png)
+
+Browse content previews and use the Seen Calendar to find a day worth revisiting.
+
+![Seenest content previews, local collection, and Seen Calendar](./images/seenest-content-and-calendar.png)
+
 ## Supported sites
 
 | Platform | Current support |

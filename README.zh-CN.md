@@ -28,6 +28,16 @@ Seenest 来自 **Seen + Nest**。每一次有价值的所见，都会回到属�
 - 支持本地数据导出、备份和恢复
 - 支持深浅主题及中英文界面
 
+## 界面预览
+
+搜索、筛选看过的内容，点击即可回到原始页面。
+
+![Seenest 主界面：内容搜索、筛选与支持的网站](./images/seenest-overview.png)
+
+浏览内容预览，通过所见日历找回某一天的所见。
+
+![Seenest 内容预览、本地内容统计与所见日历](./images/seenest-content-and-calendar.png)
+
 ## 支持的网站
 
 | 平台 | 当前支持 |

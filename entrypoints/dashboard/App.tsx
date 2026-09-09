@@ -6,6 +6,7 @@ import { db } from '../../src/db/database';
 import { translate, type Locale, type Translate } from '../../src/i18n';
 import {
   clearHistory,
+  deleteMemories,
   exportHistory,
   importHistory,
   queryHistoryPage,
@@ -280,14 +281,14 @@ function formatActiveDuration(durationMs: number | undefined, locale: Locale): s
 }
 
 /** 渲染单条时光记录，包括内容摘要、作者信息、浏览时间和原文入口。 */
-function HistoryRow({ record, locale, t }: { record: HistoryRecord; locale: Locale; t: Translate }) {
+function HistoryRow({ record, locale, t, selecting, selected, busy, onSelect, onDelete }: { record: HistoryRecord; locale: Locale; t: Translate; selecting: boolean; selected: boolean; busy: boolean; onSelect(): void; onDelete(): void }) {
   const authorProfileUrl = getAuthorProfileUrl(record);
   const mediaImageUrl = record.mediaPreviewUrl || (record.mediaType !== 'video' ? record.mediaUrl : '');
   const hasMedia = Boolean(mediaImageUrl || (record.mediaType === 'video' && record.mediaUrl));
   const activeDuration = formatActiveDuration(record.activeDurationMs, locale);
   return (
     <article className={`history-row ${hasMedia ? 'has-media' : ''}`}>
-      {authorProfileUrl ? (
+      {selecting ? <input className="memory-checkbox" type="checkbox" checked={selected} disabled={busy} onChange={onSelect} aria-label={t('delete.select', { title: record.title })} /> : authorProfileUrl ? (
         <a className="avatar-profile-link" href={authorProfileUrl} target="_blank" rel="noreferrer" aria-label={t('author.openProfile', { name: record.authorName })} title={t('action.openAuthor')}>
           <Avatar record={record} t={t} />
         </a>
@@ -331,6 +332,7 @@ function HistoryRow({ record, locale, t }: { record: HistoryRecord; locale: Loca
         </div>
       ) : null}
       <div className="visit-info">
+        <button type="button" className="memory-delete" disabled={busy} onClick={onDelete} title={t('delete.single')} aria-label={t('delete.single')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7" /></svg></button>
         <strong>{dayDistance(record.lastSeenAt) < 2 ? formatTime(record.lastSeenAt, locale) : formatDate(record.lastSeenAt, locale)}</strong>
         <span>{dayDistance(record.lastSeenAt) < 2 ? t('history.lastViewed') : t('history.viewedDate')}</span>
         <a href={record.url} target="_blank" rel="noreferrer" aria-label={t('action.backOriginal')} title={t('action.backOriginal')}>↗</a>
@@ -459,6 +461,11 @@ export function App() {
   const [sourceFilter, setSourceFilter] = useState('all');
   const [newestFirst, setNewestFirst] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  // 选择仅限当前页，切换来源、日期或搜索时清空，避免误删不可见的内容。
+  useEffect(() => setSelectedIds([]), [currentPage, query, timeFilter, selectedDate, sourceFilter, newestFirst, view]);
   const [notice, setNotice] = useState<MessageNotice | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
   const [calendarPage, setCalendarPage] = useState(0);
@@ -479,6 +486,20 @@ export function App() {
   const showNotice = (text: string, tone: MessageTone = 'success') => {
     noticeSequence.current += 1;
     setNotice({ id: noticeSequence.current, text, tone });
+  };
+  /** 删除前确认具体数量；事务成功后由实时查询同步列表、统计及日历。 */
+  const handleDelete = async (ids: string[]) => {
+    if (deleteBusy || !ids.length || !window.confirm(t('delete.confirm', { count: ids.length }))) return;
+    setDeleteBusy(true);
+    try {
+      const count = await deleteMemories(ids);
+      setSelectedIds([]);
+      showNotice(t('delete.done', { count }));
+    } catch {
+      showNotice(t('delete.failed'), 'error');
+    } finally {
+      setDeleteBusy(false);
+    }
   };
   // 真实扩展从 manifest 读取版本；普通网页预览使用当前演示版本。
   const appVersion = typeof browser !== 'undefined' && browser.runtime?.getManifest
@@ -876,11 +897,18 @@ export function App() {
           <div className="content-area">
             <section className="history-panel">
               <div className="panel-head"><div><div className="history-title-line"><h2>{t('history.title')}</h2>{selectedDate ? <button className="active-date-filter" type="button" onClick={() => setSelectedDate(null)} title={t('filter.clearDate')}><span>{formatDate(`${selectedDate}T12:00:00`, locale)}</span><b aria-hidden="true">×</b></button> : null}</div><span>{t('history.summary', { total: totalCount, filtered: historyPage.total })}</span></div><button className="sort-control" onClick={() => setNewestFirst((value) => !value)}><span>{newestFirst ? t('history.newest') : t('history.oldest')}</span><ChevronDownIcon /></button></div>
+              <div className="memory-toolbar">
+                <button type="button" disabled={deleteBusy} onClick={() => { setSelecting((value) => !value); setSelectedIds([]); }}>{t(selecting ? 'delete.cancel' : 'delete.manage')}</button>
+                {selecting ? <>
+                  <label><input type="checkbox" disabled={deleteBusy || !historyPage.items.length} checked={historyPage.items.length > 0 && historyPage.items.every((item) => selectedIds.includes(item.id))} onChange={(event) => setSelectedIds(event.target.checked ? historyPage.items.map((item) => item.id) : [])} />{t('delete.page')}</label>
+                  <button className="delete-selected" type="button" disabled={deleteBusy || !selectedIds.length} onClick={() => void handleDelete(selectedIds)}>{t('delete.selected', { count: selectedIds.length })}</button>
+                </> : null}
+              </div>
               {groups.length ? <>
                 <div className="history-groups">{groups.map(([date, items]) => (
                   <section className="history-group" key={date}>
                     <div className="date-divider"><strong>{relativeDayLabel(items[0]!.lastSeenAt, locale)}</strong><span>{formatDate(items[0]!.lastSeenAt, locale)}</span><i /><small>{t('history.pageCount', { count: items.length })}</small></div>
-                    <div className="history-list">{items.map((record) => <HistoryRow key={record.id} record={record} locale={locale} t={t} />)}</div>
+                    <div className="history-list">{items.map((record) => <HistoryRow key={record.id} record={record} locale={locale} t={t} selecting={selecting} selected={selectedIds.includes(record.id)} busy={deleteBusy} onSelect={() => setSelectedIds((ids) => ids.includes(record.id) ? ids.filter((id) => id !== record.id) : [...ids, record.id])} onDelete={() => void handleDelete([record.id])} />)}</div>
                   </section>
                 ))}</div>
                 {historyPage.total > PAGE_SIZE ? <nav className="pagination" aria-label={t('history.paginationLabel')}>

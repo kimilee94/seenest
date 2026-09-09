@@ -301,6 +301,20 @@ export async function importHistory(payload: ExportPayload | LegacyExportPayload
 }
 
 /** 清空全部本地内容记忆和访问明细。 */
+/** 在同一事务中删除指定内容及其访问明细，避免留下孤立的访问数据。 */
+export async function deleteMemories(ids: string[]): Promise<number> {
+  const uniqueIds = [...new Set(ids)].filter(Boolean);
+  if (!uniqueIds.length) return 0;
+  return db.transaction('rw', db.history, db.visits, async () => {
+    const existing = (await db.history.bulkGet(uniqueIds)).filter((item) => item !== undefined);
+    const keys = existing.map((item) => item.id);
+    if (!keys.length) return 0;
+    await db.visits.where('memoryId').anyOf(keys).delete();
+    await db.history.bulkDelete(keys);
+    return keys.length;
+  });
+}
+
 export async function clearHistory(): Promise<void> {
   await db.transaction('rw', db.history, db.visits, async () => {
     await Promise.all([db.history.clear(), db.visits.clear()]);
